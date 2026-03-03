@@ -1,1 +1,81 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CFE Engine — Full</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <main class="app">
+    <section id="screen-start" class="screen is-active">
+      <h1>CFE Engine</h1>
+      <p>Выбери язык и класс, чтобы начать.</p>
 
+      <div class="card">
+        <label>Язык</label>
+        <div class="row">
+          <button id="btn-lang-ru" class="btn btn-primary" type="button">RU</button>
+          <button id="btn-lang-kg" class="btn" type="button">KG</button>
+        </div>
+
+        <label class="mt">Класс</label>
+        <div class="row">
+          <button id="btn-grade-9" class="btn" type="button">9 класс</button>
+          <button id="btn-grade-11" class="btn btn-primary" type="button">11 класс</button>
+        </div>
+
+        <button id="btn-start" class="btn btn-wide mt" type="button">Начать тест</button>
+      </div>
+    </section>
+
+    <section id="screen-test" class="screen">
+      <h2>Тест (55 вопросов)</h2>
+      <div id="test-progress" class="muted"></div>
+      <div id="test-container"></div>
+      <div class="row mt">
+        <button id="btn-test-next" class="btn btn-primary" type="button">Дальше</button>
+      </div>
+    </section>
+
+    <section id="screen-cr" class="screen">
+      <h2>Контекст</h2>
+      <div id="cr-container"></div>
+      <div class="row mt">
+        <button id="btn-cr-next" class="btn btn-primary" type="button">Дальше</button>
+      </div>
+    </section>
+
+    <section id="screen-cases" class="screen">
+      <h2>Кейсы</h2>
+      <div id="cases-container"></div>
+      <div class="row mt">
+        <button id="btn-cases-finish" class="btn btn-primary" type="button">Получить результат</button>
+      </div>
+    </section>
+
+    <section id="screen-result" class="screen">
+      <h2>Результат</h2>
+      <div id="result-container"></div>
+
+      <div class="card mt">
+        <h3>Passport</h3>
+        <textarea id="passport-text" rows="10" readonly></textarea>
+        <div class="row mt">
+          <button id="btn-copy-passport" class="btn" type="button">Скопировать passport</button>
+          <button id="btn-copy-full" class="btn btn-primary" type="button">Скопировать Full prompt</button>
+          <button id="btn-copy-short" class="btn" type="button">Скопировать Short prompt</button>
+        </div>
+      </div>
+
+      <div class="card mt">
+        <button id="btn-submit" class="btn btn-wide btn-primary" type="button">Отправить в систему</button>
+        <div id="submit-status" class="muted mt"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/questions.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
