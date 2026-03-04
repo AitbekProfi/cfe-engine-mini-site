@@ -144,7 +144,7 @@
   });
 
   $("#btn-cases-finish")?.addEventListener("click", () => {
-    computeDeterministic_(); // blocks + weights + roles
+    computeDeterministic_(); // blocks + weights + roles + confidence
     renderResult();
     showScreen("result");
   });
@@ -162,6 +162,7 @@
       .kv b { font-weight: 700; }
       .pill { display:inline-flex; align-items:center; gap:8px; border:1px solid #2f3442; background:#0f1117; border-radius:999px; padding:8px 12px; }
       .pill b { font-weight:700; }
+      .mini { font-size: 14px; opacity: 0.85; }
     `;
     document.head.appendChild(st);
   }
@@ -333,16 +334,14 @@
       roles100[k] = c > 0 ? normalizeTo100_(avg) : 0;
     }
 
-    // сортировка по убыванию
     const sorted = Object.keys(roles100)
       .map(k => ({ key: k, score: roles100[k] }))
       .sort((a,b) => b.score - a.score);
 
-    // выбор 2–3
     const top2 = sorted.slice(0, 2);
     const third = sorted[2];
     const picked = [...top2];
-    if (third && third.score >= (top2[1].score - 8)) {
+    if (third && top2[1] && third.score >= (top2[1].score - 8)) {
       picked.push(third);
     }
 
@@ -375,6 +374,49 @@
     return state.lang === "kg" ? r.name_kg : r.name_ru;
   }
 
+  // -------- Confidence (0–100) --------
+  function stddev_(arr) {
+    if (!arr || arr.length === 0) return 0;
+    const mean = arr.reduce((a,b) => a + b, 0) / arr.length;
+    const variance = arr.reduce((a,b) => a + (b - mean) * (b - mean), 0) / arr.length;
+    return Math.sqrt(variance);
+  }
+
+  function computeConsistency_(blocks100) {
+    const values = Object.values(blocks100 || {}).filter(v => Number.isFinite(v));
+    if (values.length === 0) return 0;
+    const sd = stddev_(values);                 // 0..~30
+    const score = 100 - (sd * 2);               // sd=10 -> 80
+    return clamp_(Math.round(score), 0, 100);
+  }
+
+  function computeCaseScore_(cases) {
+    let count = 0;
+    for (const c of (cases || [])) {
+      if ((c || "").trim().length >= 50) count++;
+    }
+    return Math.round((count / 3) * 100);
+  }
+
+  function computeConfidence_(answered, total, blocks100, cases) {
+    const completion_score = total > 0 ? Math.round((answered / total) * 100) : 0;
+    const consistency_score = computeConsistency_(blocks100);
+    const case_score = computeCaseScore_(cases);
+
+    const confidence = Math.round(
+      0.4 * completion_score +
+      0.4 * consistency_score +
+      0.2 * case_score
+    );
+
+    return {
+      completion_score,
+      consistency_score,
+      case_score,
+      confidence: clamp_(confidence, 0, 100)
+    };
+  }
+
   function computeDeterministic_() {
     const qs = window.CFE?.QUESTIONS || [];
     const answered = Object.keys(state.answers || {}).length;
@@ -383,6 +425,8 @@
     const weighted_index = computeWeightedIndex_(blocks100);
 
     const rolesRes = computeRoles_(state.answers);
+
+    const conf = computeConfidence_(answered, qs.length, blocks100, state.cases);
 
     state.computed = {
       blocks: blocks100,
@@ -397,11 +441,16 @@
       roles_sorted: rolesRes.sorted,
       roles_picked: rolesRes.picked,
 
+      completion_score: conf.completion_score,
+      consistency_score: conf.consistency_score,
+      case_score: conf.case_score,
+      confidence: conf.confidence,
+
       answered_count: answered,
       total_questions: qs.length
     };
 
-    // промты подключим отдельным шагом (copy buttons уже работают)
+    // промты подключим следующим шагом (копирование уже готово)
     state.full_prompt = "";
     state.short_prompt = "";
 
@@ -435,22 +484,26 @@
     el.innerHTML = `
       <div class="card">
         <h3>Результат (детерминированно)</h3>
-        <div class="muted">Ответов: ${answered}/${c.total_questions || 55}</div>
+        <div class="mini">Ответов: ${answered}/${c.total_questions || 55}</div>
         <div class="mt"><b>Индекс соответствия (0–100):</b> ${c.weighted_index ?? 0}</div>
+        <div class="mt"><b>Confidence (0–100):</b> ${c.confidence ?? 0}</div>
+        <div class="mini mt">
+          completion ${c.completion_score ?? 0} · consistency ${c.consistency_score ?? 0} · cases ${c.case_score ?? 0}
+        </div>
       </div>
 
       <div class="card mt">
         <h3>Твои 9 блоков (0–100)</h3>
-        <p class="muted">Чистый расчёт по ответам (1–5) с нормировкой.</p>
+        <p class="mini">Чистый расчёт по ответам (1–5) с нормировкой.</p>
         <div class="grid mt">${blockItems}</div>
       </div>
 
       <div class="card mt">
         <h3>Твои роли (топ 2–3)</h3>
-        <p class="muted">Выбор идёт из RP-вопросов, без “фантазий”.</p>
-        <div class="row mt">${picked || "<span class='muted'>Недостаточно данных</span>"}</div>
+        <p class="mini">Выбор идёт из RP-вопросов, без “фантазий”.</p>
+        <div class="row mt">${picked || "<span class='mini'>Недостаточно данных</span>"}</div>
 
-        <div class="mt muted">Все роли:</div>
+        <div class="mt mini">Все роли:</div>
         <div class="grid mt">${topAll}</div>
       </div>
     `;
@@ -465,7 +518,11 @@
         `Lang: ${state.lang}\n` +
         `Grade: ${state.grade}\n` +
         `Answered: ${answered}/${c.total_questions || 55}\n\n` +
-        `Weighted index (0-100): ${c.weighted_index ?? 0}\n\n` +
+        `Weighted index (0-100): ${c.weighted_index ?? 0}\n` +
+        `Confidence (0-100): ${c.confidence ?? 0}\n` +
+        `  completion: ${c.completion_score ?? 0}\n` +
+        `  consistency: ${c.consistency_score ?? 0}\n` +
+        `  cases: ${c.case_score ?? 0}\n\n` +
         `Blocks (0-100):\n` +
         `${order.map(b => `${b}: ${blocks[b] ?? 0}`).join("\n")}\n\n` +
         `Roles (picked):\n` +
