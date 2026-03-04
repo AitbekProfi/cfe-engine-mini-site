@@ -8,8 +8,8 @@
     lang: "ru",
     grade: 11,
     version: window.CFE?.TEST_VERSION || "cfe_full_unknown",
-    answers: {},   // { [questionId]: 1..5 }
-    cr: {},        // CR form fields
+    answers: {},
+    cr: {},
     cases: ["", "", ""],
     computed: null,
     full_prompt: "",
@@ -144,7 +144,7 @@
   });
 
   $("#btn-cases-finish")?.addEventListener("click", () => {
-    computeDeterministic_(); // blocks + weights + roles + confidence
+    computeDeterministic_(); // blocks + weights + roles + confidence + PCI + clusters
     renderResult();
     showScreen("result");
   });
@@ -163,6 +163,7 @@
       .pill { display:inline-flex; align-items:center; gap:8px; border:1px solid #2f3442; background:#0f1117; border-radius:999px; padding:8px 12px; }
       .pill b { font-weight:700; }
       .mini { font-size: 14px; opacity: 0.85; }
+      .stack { display:flex; flex-direction:column; gap:8px; }
     `;
     document.head.appendChild(st);
   }
@@ -385,8 +386,8 @@
   function computeConsistency_(blocks100) {
     const values = Object.values(blocks100 || {}).filter(v => Number.isFinite(v));
     if (values.length === 0) return 0;
-    const sd = stddev_(values);                 // 0..~30
-    const score = 100 - (sd * 2);               // sd=10 -> 80
+    const sd = stddev_(values);
+    const score = 100 - (sd * 2);
     return clamp_(Math.round(score), 0, 100);
   }
 
@@ -417,6 +418,86 @@
     };
   }
 
+  // -------- PCI (0–100) --------
+  function computePCI_(weighted_index, confidence, blocks100) {
+    const CR = blocks100.CR ?? 0;
+    const MR = blocks100.MR ?? 0;
+    const EF = blocks100.EF ?? 0;
+
+    const feasibility = Math.round((CR + MR + EF) / 3);
+    const pci_raw = (0.6 * weighted_index) + (0.4 * feasibility);
+    const pci = Math.round(pci_raw * (confidence / 100));
+
+    return {
+      feasibility,
+      pci_raw: clamp_(Math.round(pci_raw), 0, 100),
+      pci: clamp_(pci, 0, 100)
+    };
+  }
+
+  // -------- Clusters --------
+  function hasRole_(rolesPicked, key) {
+    return (rolesPicked || []).some(x => x.key === key);
+  }
+
+  function computeClusters_(blocks100, rolesPicked) {
+    const CA = blocks100.CA ?? 0;
+    const LR = blocks100.LR ?? 0;
+    const EP = blocks100.EP ?? 0;
+    const MR = blocks100.MR ?? 0;
+    const EF = blocks100.EF ?? 0;
+
+    const practicalOK = (EF >= 55) && (hasRole_(rolesPicked, "TEC") || hasRole_(rolesPicked, "ORG"));
+    const academicOK = (CA >= 60) && (LR >= 55) && hasRole_(rolesPicked, "SYS");
+    const remoteOK = (MR >= 70) && (LR >= 60) && (EP >= 55);
+
+    const kg1 = {
+      key: "KG1",
+      name_ru: "KG-1: Практический путь",
+      name_kg: "KG-1: Практикалык жол",
+      why_ru: "Быстрее в навыки → портфолио/практика → первые деньги.",
+      why_kg: "Тез көндүм → портфолио/практика → алгачкы киреше."
+    };
+
+    const kg2 = {
+      key: "KG2",
+      name_ru: "KG-2: Академический путь",
+      name_kg: "KG-2: Академиялык жол",
+      why_ru: "Фундамент + системная подготовка → сильная база на будущее.",
+      why_kg: "Негиз + системдүү даярдык → күчтүү база."
+    };
+
+    const remote = {
+      key: "REMOTE",
+      name_ru: "Remote: международный трек",
+      name_kg: "Remote: эл аралык трек",
+      why_ru: "Фокус на навыки, рынок и удалённые форматы работы.",
+      why_kg: "Көндүм, рынок жана удалёнка форматы."
+    };
+
+    // Порядок KG: кто ближе — тот первым
+    const kgOrder = [];
+    if (practicalOK && !academicOK) kgOrder.push(kg1, kg2);
+    else if (!practicalOK && academicOK) kgOrder.push(kg2, kg1);
+    else {
+      // если оба true или оба false — выбираем по “склонности”
+      const practicalScore = (EF + (hasRole_(rolesPicked, "TEC") ? 10 : 0) + (hasRole_(rolesPicked, "ORG") ? 10 : 0));
+      const academicScore = (CA + LR + (hasRole_(rolesPicked, "SYS") ? 15 : 0));
+      kgOrder.push(practicalScore >= academicScore ? kg1 : kg2);
+      kgOrder.push(practicalScore >= academicScore ? kg2 : kg1);
+    }
+
+    const clusters = [...kgOrder];
+    if (remoteOK) clusters.push(remote);
+
+    return {
+      practicalOK,
+      academicOK,
+      remoteOK,
+      clusters
+    };
+  }
+
   function computeDeterministic_() {
     const qs = window.CFE?.QUESTIONS || [];
     const answered = Object.keys(state.answers || {}).length;
@@ -425,8 +506,10 @@
     const weighted_index = computeWeightedIndex_(blocks100);
 
     const rolesRes = computeRoles_(state.answers);
-
     const conf = computeConfidence_(answered, qs.length, blocks100, state.cases);
+
+    const pciRes = computePCI_(weighted_index, conf.confidence, blocks100);
+    const clustersRes = computeClusters_(blocks100, rolesRes.picked);
 
     state.computed = {
       blocks: blocks100,
@@ -446,11 +529,17 @@
       case_score: conf.case_score,
       confidence: conf.confidence,
 
+      feasibility: pciRes.feasibility,
+      pci_raw: pciRes.pci_raw,
+      pci: pciRes.pci,
+
+      clusters: clustersRes.clusters,
+      remote_ok: clustersRes.remoteOK,
+
       answered_count: answered,
       total_questions: qs.length
     };
 
-    // промты подключим следующим шагом (копирование уже готово)
     state.full_prompt = "";
     state.short_prompt = "";
 
@@ -481,21 +570,32 @@
       return `<div class="kv"><span><b>${name}</b></span><span>${x.score}</span></div>`;
     }).join("");
 
+    const clusterItems = (c.clusters || []).map(cl => {
+      const title = state.lang === "kg" ? cl.name_kg : cl.name_ru;
+      const why = state.lang === "kg" ? cl.why_kg : cl.why_ru;
+      return `<div class="kv"><span><b>${title}</b><div class="mini">${why}</div></span><span>✅</span></div>`;
+    }).join("");
+
     el.innerHTML = `
       <div class="card">
         <h3>Результат (детерминированно)</h3>
         <div class="mini">Ответов: ${answered}/${c.total_questions || 55}</div>
+
         <div class="mt"><b>Индекс соответствия (0–100):</b> ${c.weighted_index ?? 0}</div>
         <div class="mt"><b>Confidence (0–100):</b> ${c.confidence ?? 0}</div>
         <div class="mini mt">
           completion ${c.completion_score ?? 0} · consistency ${c.consistency_score ?? 0} · cases ${c.case_score ?? 0}
         </div>
+
+        <div class="mt"><b>Feasibility (0–100):</b> ${c.feasibility ?? 0}</div>
+        <div class="mt"><b>PCI (0–100):</b> ${c.pci ?? 0}</div>
+        <div class="mini mt">PCI = (0.6*index + 0.4*feasibility) × confidence</div>
       </div>
 
       <div class="card mt">
-        <h3>Твои 9 блоков (0–100)</h3>
-        <p class="mini">Чистый расчёт по ответам (1–5) с нормировкой.</p>
-        <div class="grid mt">${blockItems}</div>
+        <h3>Кластеры траектории</h3>
+        <p class="mini">Всегда 2 KG + Remote, если подходит.</p>
+        <div class="stack mt">${clusterItems || "<div class='mini'>Нет данных</div>"}</div>
       </div>
 
       <div class="card mt">
@@ -505,6 +605,12 @@
 
         <div class="mt mini">Все роли:</div>
         <div class="grid mt">${topAll}</div>
+      </div>
+
+      <div class="card mt">
+        <h3>Твои 9 блоков (0–100)</h3>
+        <p class="mini">Чистый расчёт по ответам (1–5) с нормировкой.</p>
+        <div class="grid mt">${blockItems}</div>
       </div>
     `;
 
@@ -522,7 +628,11 @@
         `Confidence (0-100): ${c.confidence ?? 0}\n` +
         `  completion: ${c.completion_score ?? 0}\n` +
         `  consistency: ${c.consistency_score ?? 0}\n` +
-        `  cases: ${c.case_score ?? 0}\n\n` +
+        `  cases: ${c.case_score ?? 0}\n` +
+        `Feasibility (0-100): ${c.feasibility ?? 0}\n` +
+        `PCI (0-100): ${c.pci ?? 0}\n\n` +
+        `Clusters:\n` +
+        `${(c.clusters || []).map(cl => `- ${(state.lang === "kg" ? cl.name_kg : cl.name_ru)}`).join("\n")}\n\n` +
         `Blocks (0-100):\n` +
         `${order.map(b => `${b}: ${blocks[b] ?? 0}`).join("\n")}\n\n` +
         `Roles (picked):\n` +
