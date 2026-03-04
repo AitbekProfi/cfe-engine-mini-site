@@ -1,8 +1,7 @@
 (() => {
   const $ = (sel) => document.querySelector(sel);
 
-  // === CFE Engine API (Google Apps Script Web App) ===
-  const API_URL = "https://script.google.com/macros/s/AKfycbzOYpBhtwhDzV_Yph3mjAoybsrNY71wd1beVUBCDv0Ezy7I6AHZNyO1akedpOYurp3jvQ/exec"; // https://script.google.com/macros/s/.../exec
+  const API_URL = "https://script.google.com/macros/s/AKfycbzOYpBhtwhDzV_Yph3mjAoybsrNY71wd1beVUBCDv0Ezy7I6AHZNyO1akedpOYurp3jvQ/exec"; // .../exec
 
   const state = {
     lang: "ru",
@@ -22,7 +21,7 @@
     show_scoring_details: false
   };
 
-  // -------- screens --------
+  // screens
   const screens = ["start", "test", "cr", "cases", "result"];
   function showScreen(name) {
     for (const s of screens) {
@@ -32,10 +31,10 @@
     }
   }
 
-  // -------- localStorage --------
+  // storage
   const LS_KEY = "cfe_full_state_v1";
   const CATALOG_CACHE_KEY = "cfe_catalog_cache_v1";
-  const CATALOG_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
+  const CATALOG_CACHE_TTL_MS = 1000 * 60 * 60 * 6;
 
   function autosave_() {
     try {
@@ -50,26 +49,24 @@
       }));
     } catch (_) {}
   }
-
   function autoload_() {
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (!raw) return;
-      const saved = JSON.parse(raw);
-      if (!saved || typeof saved !== "object") return;
-
-      state.lang = saved.lang || state.lang;
-      state.grade = saved.grade || state.grade;
-      state.version = saved.version || state.version;
-      state.answers = saved.answers || state.answers;
-      state.cr = saved.cr || state.cr;
-      state.cases = saved.cases || state.cases;
-      state.session_id = saved.session_id || state.session_id;
+      const s = JSON.parse(raw);
+      if (!s || typeof s !== "object") return;
+      state.lang = s.lang || state.lang;
+      state.grade = s.grade || state.grade;
+      state.version = s.version || state.version;
+      state.answers = s.answers || state.answers;
+      state.cr = s.cr || state.cr;
+      state.cases = s.cases || state.cases;
+      state.session_id = s.session_id || state.session_id;
     } catch (_) {}
   }
   autoload_();
 
-  // -------- start controls --------
+  // start controls
   $("#btn-lang-ru")?.addEventListener("click", () => { state.lang = "ru"; autosave_(); });
   $("#btn-lang-kg")?.addEventListener("click", () => { state.lang = "kg"; autosave_(); });
   $("#btn-grade-9")?.addEventListener("click", () => { state.grade = 9; autosave_(); });
@@ -80,13 +77,12 @@
     showScreen("test");
   });
 
-  // -------- render test --------
+  // test render
   function renderTest() {
     const qs = window.CFE?.QUESTIONS || [];
     const container = $("#test-container");
     if (!container) return;
     container.innerHTML = "";
-
     updateProgress_(qs);
 
     for (const q of qs) {
@@ -105,15 +101,12 @@
         btn.className = "btn";
         btn.type = "button";
         btn.textContent = String(v);
-
         if (state.answers[q.id] === v) btn.classList.add("btn-primary");
 
         btn.addEventListener("click", () => {
           state.answers[q.id] = v;
-
           [...row.querySelectorAll("button")].forEach(b => b.classList.remove("btn-primary"));
           btn.classList.add("btn-primary");
-
           updateProgress_(qs);
           autosave_();
         });
@@ -128,44 +121,25 @@
 
   function updateProgress_(qs) {
     const answered = Object.keys(state.answers || {}).length;
-    const progressEl = $("#test-progress");
-    if (progressEl) progressEl.textContent = `Ответов: ${answered}/${qs.length}`;
+    $("#test-progress") && ($("#test-progress").textContent = `Ответов: ${answered}/${qs.length}`);
   }
 
-  // -------- navigation --------
-  $("#btn-test-next")?.addEventListener("click", () => {
-    const qs = window.CFE?.QUESTIONS || [];
-    const answered = Object.keys(state.answers || {}).length;
-    if (answered < Math.min(20, qs.length)) {
-      alert("Ты ответил(а) очень мало. Лучше пройти спокойно — так будет точнее 🙂");
-    }
-    renderCR();
-    showScreen("cr");
-  });
-
-  $("#btn-cr-next")?.addEventListener("click", () => {
-    renderCases();
-    showScreen("cases");
-  });
+  // nav
+  $("#btn-test-next")?.addEventListener("click", () => { renderCR(); showScreen("cr"); });
+  $("#btn-cr-next")?.addEventListener("click", () => { renderCases(); showScreen("cases"); });
 
   $("#btn-cases-finish")?.addEventListener("click", async () => {
-    // 1) базовый расчёт
     computeDeterministic_();
-
-    // 2) показываем результат сразу (без профессий) + статус каталога
     renderResult();
-
     showScreen("result");
 
-    // 3) гарантированно грузим каталог, считаем топы, перерендер
     await ensureCatalogLoaded_();
     computeCatalogTopIntoComputed_();
-    // обновим промты (теперь в computed есть catalog топы)
     rebuildPrompts_();
     renderResult();
   });
 
-  // -------- style --------
+  // style
   function injectInputStyle_() {
     if (document.getElementById("cfe-input-style")) return;
     const st = document.createElement("style");
@@ -189,501 +163,367 @@
     document.head.appendChild(st);
   }
 
-  // -------- CR --------
+  // CR
   function renderCR() {
     const el = $("#cr-container");
     if (!el) return;
     injectInputStyle_();
-
     el.innerHTML = `
       <div class="card">
         <label>Имя</label>
-        <input id="cr-name" class="input" type="text" placeholder="Например: Айбек" />
-
+        <input id="cr-name" class="input" type="text" />
         <label class="mt">Пол (М / Ж)</label>
         <div class="rowgap mt">
           <button id="cr-g-m" class="btn" type="button">М</button>
           <button id="cr-g-f" class="btn" type="button">Ж</button>
         </div>
-
         <label class="mt">Город/село</label>
-        <input id="cr-city" class="input" type="text" placeholder="Например: Бишкек" />
+        <input id="cr-city" class="input" type="text" />
       </div>
     `;
-
-    const nameEl = $("#cr-name");
-    const cityEl = $("#cr-city");
+    const nameEl = $("#cr-name"), cityEl = $("#cr-city");
     if (nameEl) nameEl.value = state.cr?.name || "";
     if (cityEl) cityEl.value = state.cr?.city || "";
 
     nameEl?.addEventListener("input", () => { state.cr.name = nameEl.value.trim(); autosave_(); });
     cityEl?.addEventListener("input", () => { state.cr.city = cityEl.value.trim(); autosave_(); });
 
-    const gm = $("#cr-g-m");
-    const gf = $("#cr-g-f");
-
-    function markGender_() {
+    const gm = $("#cr-g-m"), gf = $("#cr-g-f");
+    const mark = () => {
       gm?.classList.toggle("btn-primary", state.cr.gender === "М");
       gf?.classList.toggle("btn-primary", state.cr.gender === "Ж");
-    }
-
-    gm?.addEventListener("click", () => { state.cr.gender = "М"; markGender_(); autosave_(); });
-    gf?.addEventListener("click", () => { state.cr.gender = "Ж"; markGender_(); autosave_(); });
-
-    markGender_();
+    };
+    gm?.addEventListener("click", () => { state.cr.gender = "М"; mark(); autosave_(); });
+    gf?.addEventListener("click", () => { state.cr.gender = "Ж"; mark(); autosave_(); });
+    mark();
   }
 
-  // -------- cases --------
+  // cases
   function renderCases() {
     const el = $("#cases-container");
     if (!el) return;
     injectInputStyle_();
-
     el.innerHTML = `
       <div class="card">
-        <label>Кейс 1: опиши ситуацию и что ты сделал(а)</label>
-        <textarea id="case-1" rows="5" placeholder="Текст..."></textarea>
-
-        <label class="mt">Кейс 2: когда было сложно — как ты справился(ась)</label>
-        <textarea id="case-2" rows="5" placeholder="Текст..."></textarea>
-
-        <label class="mt">Кейс 3: что у тебя получается лучше всего</label>
-        <textarea id="case-3" rows="5" placeholder="Текст..."></textarea>
+        <label>Кейс 1</label><textarea id="case-1" rows="5"></textarea>
+        <label class="mt">Кейс 2</label><textarea id="case-2" rows="5"></textarea>
+        <label class="mt">Кейс 3</label><textarea id="case-3" rows="5"></textarea>
       </div>
     `;
-
-    const c1 = $("#case-1");
-    const c2 = $("#case-2");
-    const c3 = $("#case-3");
-
+    const c1=$("#case-1"), c2=$("#case-2"), c3=$("#case-3");
     if (c1) c1.value = state.cases[0] || "";
     if (c2) c2.value = state.cases[1] || "";
     if (c3) c3.value = state.cases[2] || "";
 
-    c1?.addEventListener("input", () => { state.cases[0] = c1.value; autosave_(); });
-    c2?.addEventListener("input", () => { state.cases[1] = c2.value; autosave_(); });
-    c3?.addEventListener("input", () => { state.cases[2] = c3.value; autosave_(); });
+    c1?.addEventListener("input",()=>{ state.cases[0]=c1.value; autosave_(); });
+    c2?.addEventListener("input",()=>{ state.cases[1]=c2.value; autosave_(); });
+    c3?.addEventListener("input",()=>{ state.cases[2]=c3.value; autosave_(); });
   }
 
-  // ======================================
-  // deterministic scoring
-  // ======================================
+  // core helpers
+  const clamp_ = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const parseJSON_ = (s)=>{ try { return JSON.parse(s); } catch(_) { return null; } };
 
-  function scoreAnswer_(v, rev) {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return null;
-    if (n < 1 || n > 5) return null;
-    return rev ? (6 - n) : n;
-  }
-  function clamp_(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function normalizeTo100_(avg1to5) {
     const x = Number(avg1to5);
     if (!Number.isFinite(x)) return 0;
-    const y = ((x - 1) / 4) * 100;
-    return clamp_(Math.round(y), 0, 100);
+    return clamp_(Math.round(((x-1)/4)*100),0,100);
+  }
+  function scoreAnswer_(v, rev) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n<1 || n>5) return null;
+    return rev ? (6-n) : n;
   }
 
   function computeBlocks_(answers) {
     const qs = window.CFE?.QUESTIONS || [];
-    const sums = {}, counts = {};
-    for (const b of (window.CFE?.BLOCKS || [])) { sums[b] = 0; counts[b] = 0; }
-
+    const sums={}, counts={};
+    for (const b of (window.CFE?.BLOCKS||[])) { sums[b]=0; counts[b]=0; }
     for (const q of qs) {
-      const raw = answers[q.id];
-      const scored = scoreAnswer_(raw, !!q.rev);
-      if (scored === null) continue;
+      const scored = scoreAnswer_(answers[q.id], !!q.rev);
+      if (scored==null) continue;
       if (!sums.hasOwnProperty(q.block)) continue;
-      sums[q.block] += scored;
-      counts[q.block] += 1;
+      sums[q.block]+=scored; counts[q.block]+=1;
     }
-
-    const blocks100 = {}, blocksAvg = {};
+    const blocks100={}, blocksAvg={};
     for (const b of Object.keys(sums)) {
       const c = counts[b];
-      const avg = c > 0 ? (sums[b] / c) : 0;
-      blocksAvg[b] = avg;
-      blocks100[b] = c > 0 ? normalizeTo100_(avg) : 0;
+      const avg = c>0 ? (sums[b]/c) : 0;
+      blocksAvg[b]=avg;
+      blocks100[b]=c>0 ? normalizeTo100_(avg) : 0;
     }
     return { blocks100, blocksAvg, counts };
   }
 
   function computeRoles_(answers) {
     const qs = window.CFE?.QUESTIONS || [];
-    const roleSums = {}, roleCounts = {};
-    for (const r of (window.CFE?.ROLES || [])) { roleSums[r.key] = 0; roleCounts[r.key] = 0; }
+    const roleSums={}, roleCounts={};
+    for (const r of (window.CFE?.ROLES||[])) { roleSums[r.key]=0; roleCounts[r.key]=0; }
 
     for (const q of qs) {
-      if (q.block !== "RP") continue;
-      if (!q.role) continue;
-
-      const raw = answers[q.id];
-      const scored = scoreAnswer_(raw, !!q.rev);
-      if (scored === null) continue;
-
-      if (!roleSums.hasOwnProperty(q.role)) { roleSums[q.role] = 0; roleCounts[q.role] = 0; }
-      roleSums[q.role] += scored;
-      roleCounts[q.role] += 1;
+      if (q.block!=="RP" || !q.role) continue;
+      const scored = scoreAnswer_(answers[q.id], !!q.rev);
+      if (scored==null) continue;
+      if (!roleSums.hasOwnProperty(q.role)) { roleSums[q.role]=0; roleCounts[q.role]=0; }
+      roleSums[q.role]+=scored; roleCounts[q.role]+=1;
     }
 
-    const roles100 = {}, rolesAvg = {};
+    const roles100={}, rolesAvg={};
     for (const k of Object.keys(roleSums)) {
       const c = roleCounts[k];
-      const avg = c > 0 ? (roleSums[k] / c) : 0;
-      rolesAvg[k] = avg;
-      roles100[k] = c > 0 ? normalizeTo100_(avg) : 0;
+      const avg = c>0 ? (roleSums[k]/c) : 0;
+      rolesAvg[k]=avg;
+      roles100[k]=c>0 ? normalizeTo100_(avg) : 0;
     }
 
-    const sorted = Object.keys(roles100).map(k => ({ key: k, score: roles100[k] })).sort((a,b) => b.score - a.score);
-    const top2 = sorted.slice(0, 2);
+    const sorted = Object.keys(roles100).map(k=>({key:k,score:roles100[k]})).sort((a,b)=>b.score-a.score);
+    const top2 = sorted.slice(0,2);
     const third = sorted[2];
-    const picked = [...top2];
-    if (third && top2[1] && third.score >= (top2[1].score - 8)) picked.push(third);
+    const picked=[...top2];
+    if (third && top2[1] && third.score >= (top2[1].score-8)) picked.push(third);
 
     return { roles100, rolesAvg, roleCounts, sorted, picked };
   }
 
   function computeWeightedIndex_(blocks100) {
-    const CA = blocks100.CA ?? 0, RP = blocks100.RP ?? 0,
-      EP = blocks100.EP ?? 0, MC = blocks100.MC ?? 0,
-      ER = blocks100.ER ?? 0, LR = blocks100.LR ?? 0,
-      CR = blocks100.CR ?? 0, EF = blocks100.EF ?? 0,
-      MR = blocks100.MR ?? 0;
-
-    const g1 = (CA + RP) / 2; // 40%
-    const g2 = (EP + MC) / 2; // 20%
-    const g3 = (ER + LR) / 2; // 15%
-    const g4 = (CR + EF) / 2; // 15%
-
-    const idx = (0.40*g1) + (0.20*g2) + (0.15*g3) + (0.15*g4) + (0.10*MR);
-    return clamp_(Math.round(idx), 0, 100);
+    const CA=blocks100.CA??0, RP=blocks100.RP??0, EP=blocks100.EP??0, MC=blocks100.MC??0,
+          ER=blocks100.ER??0, LR=blocks100.LR??0, CR=blocks100.CR??0, EF=blocks100.EF??0, MR=blocks100.MR??0;
+    const g1=(CA+RP)/2, g2=(EP+MC)/2, g3=(ER+LR)/2, g4=(CR+EF)/2;
+    return clamp_(Math.round(0.40*g1+0.20*g2+0.15*g3+0.15*g4+0.10*MR),0,100);
   }
 
   function roleName_(key) {
-    const r = (window.CFE?.ROLES || []).find(x => x.key === key);
+    const r = (window.CFE?.ROLES||[]).find(x=>x.key===key);
     if (!r) return key;
-    return state.lang === "kg" ? r.name_kg : r.name_ru;
+    return state.lang==="kg" ? r.name_kg : r.name_ru;
   }
 
-  // confidence
   function stddev_(arr) {
-    if (!arr || arr.length === 0) return 0;
-    const mean = arr.reduce((a,b)=>a+b,0)/arr.length;
-    const variance = arr.reduce((a,b)=>a+(b-mean)*(b-mean),0)/arr.length;
-    return Math.sqrt(variance);
+    if (!arr.length) return 0;
+    const m=arr.reduce((a,b)=>a+b,0)/arr.length;
+    const v=arr.reduce((a,b)=>a+(b-m)*(b-m),0)/arr.length;
+    return Math.sqrt(v);
   }
-  function computeConsistency_(blocks100) {
-    const values = Object.values(blocks100 || {}).filter(v => Number.isFinite(v));
-    if (values.length === 0) return 0;
-    const sd = stddev_(values);
-    return clamp_(Math.round(100 - sd*2), 0, 100);
-  }
-  function computeCaseScore_(cases) {
-    let count = 0;
-    for (const c of (cases || [])) if ((c||"").trim().length >= 50) count++;
-    return Math.round((count/3)*100);
-  }
-  function computeConfidence_(answered, total, blocks100, cases) {
-    const completion_score = total > 0 ? Math.round((answered/total)*100) : 0;
-    const consistency_score = computeConsistency_(blocks100);
-    const case_score = computeCaseScore_(cases);
-    const confidence = Math.round(0.4*completion_score + 0.4*consistency_score + 0.2*case_score);
-    return { completion_score, consistency_score, case_score, confidence: clamp_(confidence,0,100) };
+  function computeConfidence_(answered,total,blocks100,cases) {
+    const completion = total>0 ? Math.round((answered/total)*100) : 0;
+    const values=Object.values(blocks100||{}).filter(v=>Number.isFinite(v));
+    const consistency = clamp_(Math.round(100 - stddev_(values)*2),0,100);
+    const caseScore = Math.round(((cases||[]).filter(t=>(t||"").trim().length>=50).length/3)*100);
+    const confidence = clamp_(Math.round(0.4*completion+0.4*consistency+0.2*caseScore),0,100);
+    return { completion_score:completion, consistency_score:consistency, case_score:caseScore, confidence };
   }
 
-  // PCI
-  function computePCI_(weighted_index, confidence, blocks100) {
-    const CR = blocks100.CR ?? 0, MR = blocks100.MR ?? 0, EF = blocks100.EF ?? 0;
-    const feasibility = Math.round((CR+MR+EF)/3);
-    const pci_raw = (0.6*weighted_index) + (0.4*feasibility);
-    const pci = Math.round(pci_raw*(confidence/100));
-    return { feasibility, pci_raw: clamp_(Math.round(pci_raw),0,100), pci: clamp_(pci,0,100) };
+  function computePCI_(weighted_index,confidence,blocks100) {
+    const CR=blocks100.CR??0, MR=blocks100.MR??0, EF=blocks100.EF??0;
+    const feasibility=Math.round((CR+MR+EF)/3);
+    const pci_raw=clamp_(Math.round(0.6*weighted_index+0.4*feasibility),0,100);
+    const pci=clamp_(Math.round(pci_raw*(confidence/100)),0,100);
+    return { feasibility, pci_raw, pci };
   }
 
-  // clusters
-  function hasRole_(rolesPicked, key) { return (rolesPicked||[]).some(x => x.key === key); }
-  function computeClusters_(blocks100, rolesPicked) {
-    const CA = blocks100.CA ?? 0, LR = blocks100.LR ?? 0, EP = blocks100.EP ?? 0, MR = blocks100.MR ?? 0, EF = blocks100.EF ?? 0;
-    const practicalOK = (EF >= 55) && (hasRole_(rolesPicked, "TEC") || hasRole_(rolesPicked, "ORG"));
-    const academicOK = (CA >= 60) && (LR >= 55) && hasRole_(rolesPicked, "SYS");
-    const remoteOK = (MR >= 70) && (LR >= 60) && (EP >= 55);
+  function hasRole_(picked,key){ return (picked||[]).some(x=>x.key===key); }
+  function computeClusters_(blocks100,rolesPicked){
+    const CA=blocks100.CA??0, LR=blocks100.LR??0, EP=blocks100.EP??0, MR=blocks100.MR??0, EF=blocks100.EF??0;
+    const practicalOK=(EF>=55)&&(hasRole_(rolesPicked,"TEC")||hasRole_(rolesPicked,"ORG"));
+    const academicOK=(CA>=60)&&(LR>=55)&&hasRole_(rolesPicked,"SYS");
+    const remoteOK=(MR>=70)&&(LR>=60)&&(EP>=55);
 
-    const kg1 = { key:"KG1", name_ru:"KG-1: Практический путь", name_kg:"KG-1: Практикалык жол",
-      why_ru:"Быстрее в навыки → портфолио/практика → первые деньги.", why_kg:"Тез көндүм → портфолио/практика → алгачкы киреше." };
-    const kg2 = { key:"KG2", name_ru:"KG-2: Академический путь", name_kg:"KG-2: Академиялык жол",
-      why_ru:"Фундамент + системная подготовка → сильная база на будущее.", why_kg:"Негиз + системдүү даярдык → күчтүү база." };
-    const remote = { key:"REMOTE", name_ru:"Remote: международный трек", name_kg:"Remote: эл аралык трек",
-      why_ru:"Фокус на навыки, рынок и удалённые форматы работы.", why_kg:"Көндүм, рынок жана удалёнка форматы." };
+    const kg1={key:"KG1",name_ru:"KG-1: Практический путь",name_kg:"KG-1: Практикалык жол",
+      why_ru:"Быстрее в навыки → портфолио/практика → первые деньги.",why_kg:"Тез көндүм → портфолио/практика → алгачкы киреше."};
+    const kg2={key:"KG2",name_ru:"KG-2: Академический путь",name_kg:"KG-2: Академиялык жол",
+      why_ru:"Фундамент + системная подготовка → сильная база на будущее.",why_kg:"Негиз + системдүү даярдык → күчтүү база."};
+    const remote={key:"REMOTE",name_ru:"Remote: международный трек",name_kg:"Remote: эл аралык трек",
+      why_ru:"Фокус на навыки, рынок и удалённые форматы работы.",why_kg:"Көндүм, рынок жана удалёнка форматы."};
 
-    const kgOrder = [];
-    if (practicalOK && !academicOK) kgOrder.push(kg1,kg2);
-    else if (!practicalOK && academicOK) kgOrder.push(kg2,kg1);
+    const order=[];
+    if (practicalOK && !academicOK) order.push(kg1,kg2);
+    else if (!practicalOK && academicOK) order.push(kg2,kg1);
     else {
-      const practicalScore = EF + (hasRole_(rolesPicked,"TEC")?10:0) + (hasRole_(rolesPicked,"ORG")?10:0);
-      const academicScore = CA + LR + (hasRole_(rolesPicked,"SYS")?15:0);
-      kgOrder.push(practicalScore >= academicScore ? kg1 : kg2);
-      kgOrder.push(practicalScore >= academicScore ? kg2 : kg1);
+      const pScore=EF+(hasRole_(rolesPicked,"TEC")?10:0)+(hasRole_(rolesPicked,"ORG")?10:0);
+      const aScore=CA+LR+(hasRole_(rolesPicked,"SYS")?15:0);
+      order.push(pScore>=aScore?kg1:kg2);
+      order.push(pScore>=aScore?kg2:kg1);
     }
-
-    const clusters = [...kgOrder];
+    const clusters=[...order];
     if (remoteOK) clusters.push(remote);
-    return { clusters, remoteOK, practicalOK, academicOK };
+    return { clusters, remote_ok: remoteOK };
   }
 
-  // passport struct
-  function topBlocks_(blocks100, n=3) {
-    const arr = Object.keys(blocks100||{}).map(k=>({key:k,score:blocks100[k]??0})).sort((a,b)=>b.score-a.score);
-    return arr.slice(0,n);
+  // passport + prompts (including catalog)
+  function topBlocks_(blocks100,n=3){
+    return Object.keys(blocks100||{}).map(k=>({key:k,score:blocks100[k]??0})).sort((a,b)=>b.score-a.score).slice(0,n);
   }
-  function bottomBlocks_(blocks100, n=2) {
-    const arr = Object.keys(blocks100||{}).map(k=>({key:k,score:blocks100[k]??0})).sort((a,b)=>a.score-b.score);
-    return arr.slice(0,n);
+  function bottomBlocks_(blocks100,n=2){
+    return Object.keys(blocks100||{}).map(k=>({key:k,score:blocks100[k]??0})).sort((a,b)=>a.score-b.score).slice(0,n);
   }
-  function buildPassportStruct_(computed) {
-    const blocks = computed.blocks || {};
-    const rolesPicked = computed.roles_picked || [];
-    const clusters = computed.clusters || [];
+
+  function buildPassportStruct_(c){
+    const blocks=c.blocks||{};
     return {
       version: state.version,
       lang: state.lang,
       grade: state.grade,
-      name: state.cr?.name || "",
-      gender: state.cr?.gender || "",
-      city: state.cr?.city || "",
-      answered: `${computed.answered_count}/${computed.total_questions}`,
-      weighted_index: computed.weighted_index,
-      confidence: computed.confidence,
-      feasibility: computed.feasibility,
-      pci: computed.pci,
+      name: state.cr?.name||"",
+      gender: state.cr?.gender||"",
+      city: state.cr?.city||"",
+      answered: `${c.answered_count}/${c.total_questions}`,
+      weighted_index: c.weighted_index,
+      confidence: c.confidence,
+      feasibility: c.feasibility,
+      pci: c.pci,
       blocks,
-      top_blocks: topBlocks_(blocks, 3),
-      weak_blocks: bottomBlocks_(blocks, 2),
-      roles_picked: rolesPicked.map(r => ({ key:r.key, name: roleName_(r.key), score:r.score })),
-      clusters: clusters.map(c => ({
-        key: c.key,
-        name: state.lang === "kg" ? c.name_kg : c.name_ru,
-        why: state.lang === "kg" ? c.why_kg : c.why_ru
+      top_blocks: topBlocks_(blocks,3),
+      weak_blocks: bottomBlocks_(blocks,2),
+      roles_picked: (c.roles_picked||[]).map(r=>({key:r.key,name:roleName_(r.key),score:r.score})),
+      clusters: (c.clusters||[]).map(cl=>({
+        key: cl.key,
+        name: state.lang==="kg" ? cl.name_kg : cl.name_ru,
+        why: state.lang==="kg" ? cl.why_kg : cl.why_ru
       })),
-      cases: [
-        (state.cases[0] || "").trim(),
-        (state.cases[1] || "").trim(),
-        (state.cases[2] || "").trim()
-      ],
-      catalog_top_directions: computed.catalog_top_directions || [],
-      catalog_top_professions: computed.catalog_top_professions || []
+      cases: [(state.cases[0]||"").trim(),(state.cases[1]||"").trim(),(state.cases[2]||"").trim()],
+      catalog_top_directions: c.catalog_top_directions || [],
+      catalog_top_professions: c.catalog_top_professions || []
     };
   }
 
-  function passportText_(ps) {
-    const lines = [];
-    lines.push(`CFE ENGINE PASSPORT`);
-    lines.push(`version: ${ps.version}`);
-    lines.push(`lang: ${ps.lang} | grade: ${ps.grade}`);
-    lines.push(`name: ${ps.name || "-"} | gender: ${ps.gender || "-"} | city: ${ps.city || "-"}`);
-    lines.push(`answered: ${ps.answered}`);
-    lines.push(``);
-    lines.push(`INDEXES`);
-    lines.push(`weighted_index: ${ps.weighted_index}`);
-    lines.push(`confidence: ${ps.confidence}`);
-    lines.push(`feasibility: ${ps.feasibility}`);
-    lines.push(`PCI: ${ps.pci}`);
-    lines.push(``);
-    lines.push(`ROLES (top 2–3)`);
-    for (const r of ps.roles_picked) lines.push(`- ${r.name}: ${r.score}`);
-    lines.push(``);
-    lines.push(`CLUSTERS`);
-    for (const c of ps.clusters) lines.push(`- ${c.name} — ${c.why}`);
-    lines.push(``);
-    lines.push(`BLOCKS (0–100)`);
-    for (const k of (window.CFE?.BLOCKS || Object.keys(ps.blocks))) lines.push(`${k}: ${ps.blocks[k] ?? 0}`);
-    lines.push(``);
-    lines.push(`TOP направления (deterministic)`);
-    for (const d of (ps.catalog_top_directions || [])) lines.push(`- ${d.direction}: ${d.score}`);
-    lines.push(``);
-    lines.push(`TOP профессии (deterministic)`);
-    for (const p of (ps.catalog_top_professions || []).slice(0, 15)) lines.push(`- ${p.name_ru}: ${p.score?.final ?? p.score}`);
-    lines.push(``);
-    lines.push(`CASES`);
-    lines.push(`1) ${ps.cases[0] || "-"}`);
-    lines.push(`2) ${ps.cases[1] || "-"}`);
-    lines.push(`3) ${ps.cases[2] || "-"}`);
-    return lines.join("\n");
+  function passportText_(ps){
+    const L=[];
+    L.push("CFE ENGINE PASSPORT");
+    L.push(`version: ${ps.version}`);
+    L.push(`lang: ${ps.lang} | grade: ${ps.grade}`);
+    L.push(`name: ${ps.name||"-"} | gender: ${ps.gender||"-"} | city: ${ps.city||"-"}`);
+    L.push(`answered: ${ps.answered}`);
+    L.push("");
+    L.push("INDEXES");
+    L.push(`weighted_index: ${ps.weighted_index}`);
+    L.push(`confidence: ${ps.confidence}`);
+    L.push(`feasibility: ${ps.feasibility}`);
+    L.push(`PCI: ${ps.pci}`);
+    L.push("");
+    L.push("ROLES");
+    for (const r of ps.roles_picked) L.push(`- ${r.name}: ${r.score}`);
+    L.push("");
+    L.push("TOP DIRECTIONS (catalog)");
+    for (const d of (ps.catalog_top_directions||[])) L.push(`- ${d.direction}: ${d.score}`);
+    L.push("");
+    L.push("TOP PROFESSIONS (catalog)");
+    for (const p of (ps.catalog_top_professions||[]).slice(0,15)) L.push(`- ${p.name_ru}: ${p.score.final}`);
+    L.push("");
+    L.push("CASES");
+    L.push(`1) ${ps.cases[0]||"-"}`);
+    L.push(`2) ${ps.cases[1]||"-"}`);
+    L.push(`3) ${ps.cases[2]||"-"}`);
+    return L.join("\n");
   }
 
-  function buildFullPrompt_(ps) {
+  function buildFullPrompt_(ps){
     return [
-      `Ты — карьерный аналитик для подростков Кыргызстана. Пиши простым, дружелюбным, но чётким языком.`,
-      `ВАЖНО: ничего не выдумывай. Используй ТОЛЬКО данные из PASSPORT_STRUCT.`,
-      `Если данных не хватает — так и скажи.`,
+      `Ты — карьерный аналитик для подростков Кыргызстана.`,
+      `ВАЖНО: ничего не выдумывай. Используй ТОЛЬКО PASSPORT_STRUCT.`,
+      `Используй catalog_top_directions и catalog_top_professions как основу.`,
       ``,
-      `ЗАДАЧА:`,
-      `1) Короткий вывод (5–7 строк).`,
-      `2) Роли (2–3): объясни что это значит в жизни.`,
-      `3) Кластеры (2 KG + Remote если есть): кому подходит, первые шаги.`,
-      `4) Используй deterministic TOP направления и TOP профессии из каталога как основу рекомендаций.`,
-      `5) Дай 5 шагов на неделю.`,
-      `6) 5 "не подходит сейчас" и почему (по weak_blocks).`,
-      ``,
-      `PASSPORT_STRUCT (JSON):`,
+      `PASSPORT_STRUCT:`,
       JSON.stringify(ps, null, 2)
     ].join("\n");
   }
-
-  function buildShortPrompt_(ps) {
+  function buildShortPrompt_(ps){
     return [
-      `Короткий разбор (до 12 строк) по PASSPORT_STRUCT.`,
-      `Не выдумывай.`,
-      `Дай: роли, кластеры, 5 направлений, 5 шагов.`,
-      `PASSPORT_STRUCT:`,
+      `Короткий разбор по PASSPORT_STRUCT. Не выдумывай.`,
       JSON.stringify(ps)
     ].join("\n");
   }
-
-  function rebuildPrompts_() {
+  function rebuildPrompts_(){
     if (!state.computed?.passport_struct) return;
     const ps = state.computed.passport_struct;
     state.full_prompt = buildFullPrompt_(ps);
     state.short_prompt = buildShortPrompt_(ps);
   }
 
-  // ======================================
-  // Catalog: load + score
-  // ======================================
+  // =============================
+  // CATALOG CONTRACT v1
+  // =============================
+  // expected columns:
+  // id,name_ru,name_kg,direction,kg,remote_ok,roles_csv,blocks_target_json,roles_weight_json,clusters_csv,notes
 
-  function parseMaybeJSON_(s) { try { return JSON.parse(s); } catch(_) { return null; } }
-  function isObj_(x) { return x && typeof x === "object" && !Array.isArray(x); }
-  function num_(x, def=0) {
-    const n = Number(String(x).replace(",", "."));
-    return Number.isFinite(n) ? n : def;
-  }
-  function pickFirst_(obj, keys) {
-    for (const k of keys) {
-      if (obj && obj[k] != null && obj[k] !== "") return obj[k];
-      const kk = Object.keys(obj || {}).find(z => z.toLowerCase() === String(k).toLowerCase());
-      if (kk && obj[kk] != null && obj[kk] !== "") return obj[kk];
-    }
-    return null;
-  }
-
-  function normalizeCatalogPayload_(payload) {
-    if (!payload) return [];
-    if (typeof payload === "string") {
-      const maybe = parseMaybeJSON_(payload);
-      if (maybe) return normalizeCatalogPayload_(maybe);
-      return [];
-    }
-    if (Array.isArray(payload)) return payload;
-    if (isObj_(payload)) {
-      if (Array.isArray(payload.items)) return payload.items;
-      if (Array.isArray(payload.rows)) return payload.rows;
-      if (payload.data) return normalizeCatalogPayload_(payload.data);
-    }
-    return [];
-  }
-
-  function extractProfile_(row) {
-    const profileRaw = pickFirst_(row, ["profile_json","profile","data_json","json"]);
-    const profile = profileRaw ? (typeof profileRaw === "string" ? parseMaybeJSON_(profileRaw) : profileRaw) : null;
-
-    const blocks = {};
-    const roles = {};
-    const clusters = new Set();
-
-    const BLOCKS = window.CFE?.BLOCKS || ["CA","RP","EP","MC","ER","LR","CR","MR","EF"];
-    const ROLE_KEYS = (window.CFE?.ROLES || []).map(r => r.key);
-
-    if (profile && isObj_(profile)) {
-      if (isObj_(profile.blocks)) for (const b of BLOCKS) blocks[b] = num_(profile.blocks[b], null);
-      if (isObj_(profile.roles)) for (const rk of ROLE_KEYS) roles[rk] = num_(profile.roles[rk], null);
-      if (Array.isArray(profile.clusters)) profile.clusters.forEach(c => clusters.add(String(c)));
-      if (profile.cluster) clusters.add(String(profile.cluster));
-      if (profile.remote === true || String(profile.remote).toLowerCase() === "true") clusters.add("REMOTE");
-    }
-
-    for (const b of BLOCKS) {
-      if (blocks[b] == null) {
-        const v = pickFirst_(row, [b, `block_${b}`, `blocks_${b}`, `${b}_score`, `${b}_target`, `${b}_w`, `w_${b}`]);
-        if (v != null) blocks[b] = num_(v, null);
-      }
-    }
-    for (const rk of ROLE_KEYS) {
-      if (roles[rk] == null) {
-        const v = pickFirst_(row, [rk, `role_${rk}`, `roles_${rk}`, `${rk}_score`, `${rk}_w`]);
-        if (v != null) roles[rk] = num_(v, null);
-      }
-    }
-
-    const cl = pickFirst_(row, ["cluster","clusters","track","path"]);
-    if (cl) String(cl).split(/[;|,]/).map(s=>s.trim()).filter(Boolean).forEach(x=>clusters.add(x));
-    const remoteFlag = pickFirst_(row, ["remote","is_remote","Remote"]);
-    if (remoteFlag && String(remoteFlag).toLowerCase()==="true") clusters.add("REMOTE");
-
-    return { blocks, roles, clusters: [...clusters] };
-  }
-
-  function normalizeCatalogItem_(row, idx) {
-    const id = pickFirst_(row, ["id","ID","uid","code"]) ?? String(idx+1);
-    const name_ru = pickFirst_(row, ["name_ru","name","profession_ru","title_ru","profession"]) ?? `Profession ${id}`;
-    const name_kg = pickFirst_(row, ["name_kg","title_kg","profession_kg"]) ?? "";
-    const direction = pickFirst_(row, ["direction","field","area","category","group"]) ?? "";
-    const profile = extractProfile_(row);
-    return { id:String(id), name_ru:String(name_ru), name_kg:String(name_kg||""), direction:String(direction||""), profile, raw: row };
-  }
-
-  async function fetchCatalog_() {
-    if (!API_URL || API_URL.includes("PASTE_YOUR_WEB_APP_URL_HERE")) throw new Error("API_URL not set");
-
-    // Try POST first
-    const actions = ["get_catalog_professions", "catalog_professions"];
-    for (const action of actions) {
-      try {
-        const res = await fetch(API_URL, {
-          method: "POST",
-          headers: { "Content-Type":"text/plain;charset=UTF-8" },
-          body: JSON.stringify({ action })
-        });
-        const txt = await res.text();
-        const js = parseMaybeJSON_(txt);
-        if (js && js.ok === false) continue;
-        return js ?? txt;
-      } catch (_) {
-        continue;
-      }
-    }
-
-    // Fallback GET (useful if something blocks POST somewhere)
-    for (const action of actions) {
-      try {
-        const url = `${API_URL}?action=${encodeURIComponent(action)}`;
-        const res = await fetch(url, { method: "GET" });
-        const js = await res.json();
-        if (js && js.ok === false) continue;
-        return js;
-      } catch (_) {
-        continue;
-      }
-    }
-
-    throw new Error("Cannot load catalog (both actions failed)");
-  }
-
-  function loadCatalogFromCache_() {
+  function loadCatalogFromCache_(){
     try {
-      const raw = localStorage.getItem(CATALOG_CACHE_KEY);
+      const raw=localStorage.getItem(CATALOG_CACHE_KEY);
       if (!raw) return null;
-      const obj = JSON.parse(raw);
+      const obj=JSON.parse(raw);
       if (!obj || !obj.ts || !Array.isArray(obj.items)) return null;
       if ((Date.now()-obj.ts) > CATALOG_CACHE_TTL_MS) return null;
       return obj.items;
     } catch(_) { return null; }
   }
-
-  function saveCatalogToCache_(items) {
-    try { localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify({ ts: Date.now(), items })); } catch(_) {}
+  function saveCatalogToCache_(items){
+    try { localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify({ts:Date.now(), items})); } catch(_) {}
   }
 
-  async function ensureCatalogLoaded_() {
-    if (state.catalog_loaded && Array.isArray(state.catalog)) return;
+  async function fetchCatalog_(){
+    if (!API_URL || API_URL.includes("PASTE_YOUR_WEB_APP_URL_HERE")) throw new Error("API_URL not set");
+    // POST
+    try {
+      const res = await fetch(API_URL, {
+        method:"POST",
+        headers: {"Content-Type":"text/plain;charset=UTF-8"},
+        body: JSON.stringify({ action:"get_catalog_professions" })
+      });
+      const js = await res.json();
+      if (js && js.ok) return js.items || [];
+      throw new Error("catalog: bad response");
+    } catch (e) {
+      // GET fallback
+      const url = `${API_URL}?action=get_catalog_professions`;
+      const res = await fetch(url, { method:"GET" });
+      const js = await res.json();
+      if (js && js.ok) return js.items || [];
+      throw new Error("catalog: cannot fetch");
+    }
+  }
 
+  function normalizeCatalogItemV1_(row){
+    const id = String(row.id || "").trim();
+    const name_ru = String(row.name_ru || "").trim();
+    if (!id || !name_ru) return null;
+
+    const item = {
+      id,
+      name_ru,
+      name_kg: String(row.name_kg || "").trim(),
+      direction: String(row.direction || "").trim(),
+      kg: String(row.kg || "").trim().toUpperCase(), // KG1/KG2
+      remote_ok: String(row.remote_ok || "").toUpperCase() === "TRUE",
+      roles_csv: String(row.roles_csv || "").trim(),
+      clusters_csv: String(row.clusters_csv || "").trim(),
+      blocks_target: parseJSON_(String(row.blocks_target_json || "").trim()) || null,
+      roles_weight: parseJSON_(String(row.roles_weight_json || "").trim()) || null,
+      notes: String(row.notes || "")
+    };
+
+    // default clusters from kg/remote
+    const clusters = new Set();
+    if (item.kg === "KG1" || item.kg === "KG2") clusters.add(item.kg);
+    if (item.remote_ok) clusters.add("REMOTE");
+    if (item.clusters_csv) item.clusters_csv.split(",").map(s=>s.trim()).filter(Boolean).forEach(x=>clusters.add(x.toUpperCase()));
+    item.clusters = [...clusters];
+
+    // roles set (optional)
+    item.roles = item.roles_csv
+      ? item.roles_csv.split(",").map(s=>s.trim()).filter(Boolean).map(x=>x.toUpperCase())
+      : [];
+
+    // validate targets
+    const BLOCKS = window.CFE?.BLOCKS || ["CA","RP","EP","MC","ER","LR","CR","MR","EF"];
+    if (!item.blocks_target || !BLOCKS.some(b => item.blocks_target[b] != null)) {
+      // если нет targets — нельзя честно скорить
+      item.blocks_target = null;
+    }
+
+    return item;
+  }
+
+  async function ensureCatalogLoaded_(){
+    if (state.catalog_loaded && Array.isArray(state.catalog)) return;
     state.catalog_error = null;
 
     const cached = loadCatalogFromCache_();
@@ -694,9 +534,12 @@
     }
 
     try {
-      const data = await fetchCatalog_();
-      const rows = normalizeCatalogPayload_(data);
-      const items = rows.map((r,i)=>normalizeCatalogItem_(r,i));
+      const rows = await fetchCatalog_();
+      const items = [];
+      for (const r of rows) {
+        const it = normalizeCatalogItemV1_(r);
+        if (it) items.push(it);
+      }
       state.catalog = items;
       state.catalog_loaded = true;
       saveCatalogToCache_(items);
@@ -707,136 +550,104 @@
     }
   }
 
-  function dotScoreBlocks_(userBlocks, profBlocks) {
-    const keys = window.CFE?.BLOCKS || Object.keys(userBlocks || {});
-    let hasTargets = false;
+  // scoring for v1
+  function scoreByTargets_(userBlocks, targets){
+    const keys = window.CFE?.BLOCKS || Object.keys(userBlocks||{});
+    let sum=0,cnt=0;
     for (const k of keys) {
-      const v = profBlocks?.[k];
-      if (v != null && num_(v, null) != null && num_(v) > 1.5) { hasTargets = true; break; }
+      const u = Number(userBlocks?.[k]);
+      const t = Number(targets?.[k]);
+      if (!Number.isFinite(u) || !Number.isFinite(t)) continue;
+      sum += Math.abs(u - t);
+      cnt++;
     }
-
-    if (hasTargets) {
-      let sum=0,cnt=0;
-      for (const k of keys) {
-        const u = num_(userBlocks?.[k], null);
-        const t = num_(profBlocks?.[k], null);
-        if (u==null || t==null) continue;
-        sum += Math.abs(u - t); cnt++;
-      }
-      if (cnt===0) return 0;
-      return clamp_(Math.round(100 - (sum/cnt)), 0, 100);
-    }
-
-    let wsum=0;
-    for (const k of keys) wsum += num_(profBlocks?.[k], 0);
-    if (wsum<=0) return 0;
-
-    let score=0;
-    for (const k of keys) score += (num_(userBlocks?.[k],0) * (num_(profBlocks?.[k],0)/wsum));
-    return clamp_(Math.round(score),0,100);
+    if (!cnt) return 0;
+    return clamp_(Math.round(100 - (sum/cnt)),0,100);
   }
 
-  function rolesMatch_(userRolesPicked, profRoles) {
-    if (!userRolesPicked || userRolesPicked.length===0) return 0;
-    const pickedKeys = userRolesPicked.map(x=>x.key);
+  function scoreRolesByWeights_(userRolesPicked, weights){
+    if (!weights || !userRolesPicked?.length) return 50;
     let sum=0,cnt=0;
-    for (const k of pickedKeys) {
-      const v = num_(profRoles?.[k], null);
-      if (v==null) continue;
+    for (const r of userRolesPicked) {
+      const v = Number(weights[r.key]);
+      if (!Number.isFinite(v)) continue;
       const vv = v<=1 ? Math.round(v*100) : clamp_(Math.round(v),0,100);
       sum += vv; cnt++;
     }
-    if (cnt===0) return 50;
+    if (!cnt) return 50;
     return clamp_(Math.round(sum/cnt),0,100);
   }
 
-  function clusterMatch_(userClusters, profClusters) {
-    if (!Array.isArray(userClusters) || userClusters.length===0) return 0;
-    if (!Array.isArray(profClusters) || profClusters.length===0) return 50;
-
-    const u = new Set(userClusters.map(x=>String(x).toUpperCase()));
-    const p = new Set(profClusters.map(x=>String(x).toUpperCase()));
+  function scoreClusters_(userClusters, profClusters){
+    const u = new Set((userClusters||[]).map(x=>String(x.key||x).toUpperCase()));
+    const p = new Set((profClusters||[]).map(x=>String(x).toUpperCase()));
     let inter=0;
     u.forEach(x=>{ if (p.has(x)) inter++; });
     if (inter>0) return 100;
-    if (u.has("REMOTE") && (p.has("REMOTE") || p.has("INTL") || p.has("INTERNATIONAL"))) return 85;
+    if (u.has("REMOTE") && p.has("REMOTE")) return 85;
     return 40;
   }
 
-  function scoreProfession_(userComputed, item) {
-    const userBlocks = userComputed.blocks || {};
-    const userRolesPicked = userComputed.roles_picked || [];
-    const userClusters = (userComputed.clusters || []).map(c => c.key || c);
+  function scoreProfessionV1_(computed, item){
+    if (!item.blocks_target) return { final: 0, blocks: 0, roles: 0, clusters: 0 };
 
-    const profBlocks = item.profile?.blocks || {};
-    const profRoles = item.profile?.roles || {};
-    const profClusters = item.profile?.clusters || [];
+    const sBlocks = scoreByTargets_(computed.blocks || {}, item.blocks_target);
+    const sRoles  = scoreRolesByWeights_(computed.roles_picked || [], item.roles_weight || {});
+    const sClus   = scoreClusters_(computed.clusters || [], item.clusters || []);
 
-    const sBlocks = dotScoreBlocks_(userBlocks, profBlocks);
-    const sRoles  = rolesMatch_(userRolesPicked, profRoles);
-    const sClus   = clusterMatch_(userClusters, profClusters);
-
-    const final = Math.round(0.55*sBlocks + 0.25*sRoles + 0.20*sClus);
+    const final = Math.round(0.60*sBlocks + 0.25*sRoles + 0.15*sClus);
     return { final: clamp_(final,0,100), blocks:sBlocks, roles:sRoles, clusters:sClus };
   }
 
-  function computeTopDirections_(scored, topN=7) {
-    const map = new Map();
-    for (const s of scored) {
-      const d = (s.item.direction || "Без категории").trim();
-      if (!map.has(d)) map.set(d, { direction:d, sum:0, cnt:0, best:0 });
-      const g = map.get(d);
-      g.sum += s.score.final;
-      g.cnt += 1;
-      g.best = Math.max(g.best, s.score.final);
-    }
-    const arr = [...map.values()].map(x => ({
-      direction: x.direction,
-      score: Math.round((0.7*(x.sum/x.cnt)) + (0.3*x.best))
-    })).sort((a,b)=>b.score-a.score);
-    return arr.slice(0,topN);
-  }
-
-  function computeCatalogTopIntoComputed_() {
+  function computeCatalogTopIntoComputed_(){
     if (!state.computed) return;
     if (!state.catalog_loaded || !Array.isArray(state.catalog)) return;
 
     const scored = state.catalog.map(item => ({
       item,
-      score: scoreProfession_(state.computed, item)
-    })).sort((a,b)=>b.score.final - a.score.final);
+      score: scoreProfessionV1_(state.computed, item)
+    })).filter(x => x.score.final > 0)
+      .sort((a,b)=>b.score.final-a.score.final);
 
-    const topProf = scored.slice(0,15);
-    const topDir = computeTopDirections_(scored,7);
-
-    state.computed.catalog_top_directions = topDir;
-    state.computed.catalog_top_professions = topProf.map(p => ({
-      id: p.item.id,
-      name_ru: p.item.name_ru,
-      name_kg: p.item.name_kg,
-      direction: p.item.direction,
-      score: p.score
+    const topProf = scored.slice(0,15).map(x => ({
+      id: x.item.id,
+      name_ru: x.item.name_ru,
+      name_kg: x.item.name_kg,
+      direction: x.item.direction,
+      score: x.score
     }));
 
-    // обновляем passport_struct с топами
+    // top directions
+    const dirMap = new Map();
+    for (const x of scored) {
+      const d = x.item.direction || "Без категории";
+      if (!dirMap.has(d)) dirMap.set(d, { direction:d, sum:0, cnt:0, best:0 });
+      const g = dirMap.get(d);
+      g.sum += x.score.final; g.cnt++; g.best = Math.max(g.best, x.score.final);
+    }
+    const topDir = [...dirMap.values()].map(g => ({
+      direction: g.direction,
+      score: Math.round(0.7*(g.sum/g.cnt) + 0.3*g.best)
+    })).sort((a,b)=>b.score-a.score).slice(0,7);
+
+    state.computed.catalog_top_professions = topProf;
+    state.computed.catalog_top_directions = topDir;
     state.computed.passport_struct = buildPassportStruct_(state.computed);
   }
 
-  // -------- main compute --------
-  function computeDeterministic_() {
+  // main compute
+  function computeDeterministic_(){
     const qs = window.CFE?.QUESTIONS || [];
     const answered = Object.keys(state.answers || {}).length;
 
     const { blocks100, blocksAvg, counts } = computeBlocks_(state.answers);
     const weighted_index = computeWeightedIndex_(blocks100);
-
     const rolesRes = computeRoles_(state.answers);
     const conf = computeConfidence_(answered, qs.length, blocks100, state.cases);
-
     const pciRes = computePCI_(weighted_index, conf.confidence, blocks100);
     const clustersRes = computeClusters_(blocks100, rolesRes.picked);
 
-    const computed = {
+    const c = {
       blocks: blocks100,
       blocks_avg_1to5: blocksAvg,
       blocks_counts: counts,
@@ -859,7 +670,7 @@
       pci: pciRes.pci,
 
       clusters: clustersRes.clusters,
-      remote_ok: clustersRes.remoteOK,
+      remote_ok: clustersRes.remote_ok,
 
       answered_count: answered,
       total_questions: qs.length,
@@ -868,73 +679,65 @@
       catalog_top_professions: []
     };
 
-    computed.passport_struct = buildPassportStruct_(computed);
+    c.passport_struct = buildPassportStruct_(c);
 
-    state.computed = computed;
-    state.full_prompt = buildFullPrompt_(computed.passport_struct);
-    state.short_prompt = buildShortPrompt_(computed.passport_struct);
+    state.computed = c;
+    state.full_prompt = buildFullPrompt_(c.passport_struct);
+    state.short_prompt = buildShortPrompt_(c.passport_struct);
 
     autosave_();
   }
 
-  // -------- result render --------
-  function renderResult() {
+  // result render
+  function renderResult(){
     const el = $("#result-container");
     if (!el) return;
     injectInputStyle_();
 
     const c = state.computed || {};
-    const blocks = c.blocks || {};
-    const answered = c.answered_count ?? Object.keys(state.answers || {}).length;
+    const answered = c.answered_count ?? Object.keys(state.answers||{}).length;
 
+    const blocks = c.blocks || {};
     const order = window.CFE?.BLOCKS || Object.keys(blocks);
     const blockItems = order.map(b => `<div class="kv"><span><b>${b}</b></span><span>${blocks[b] ?? 0}</span></div>`).join("");
 
-    const pickedRoles = (c.roles_picked || []).map(x => {
-      const name = roleName_(x.key);
-      return `<span class="pill"><b>${name}</b> ${x.score}</span>`;
-    }).join(" ");
+    const roles = (c.roles_picked||[]).map(r => `<span class="pill"><b>${escapeHtml_(roleName_(r.key))}</b> ${r.score}</span>`).join(" ");
 
-    const clusterItems = (c.clusters || []).map(cl => {
-      const title = state.lang === "kg" ? cl.name_kg : cl.name_ru;
-      const why = state.lang === "kg" ? cl.why_kg : cl.why_ru;
-      return `<div class="kv"><span><b>${title}</b><div class="mini">${why}</div></span><span>✅</span></div>`;
+    const clusters = (c.clusters||[]).map(cl => {
+      const title = state.lang==="kg" ? cl.name_kg : cl.name_ru;
+      const why = state.lang==="kg" ? cl.why_kg : cl.why_ru;
+      return `<div class="kv"><span><b>${escapeHtml_(title)}</b><div class="mini">${escapeHtml_(why)}</div></span><span>✅</span></div>`;
     }).join("");
 
     const catalogStatus = !state.catalog_loaded
       ? `<div class="mini muted">Каталог загружается…</div>`
       : state.catalog_error
         ? `<div class="warn mini">❌ catalog_professions: ${escapeHtml_(state.catalog_error)}</div>`
-        : `<div class="ok mini">✅ Каталог загружен: ${Array.isArray(state.catalog) ? state.catalog.length : 0} профессий</div>`;
+        : `<div class="ok mini">✅ Каталог загружен: ${Array.isArray(state.catalog)?state.catalog.length:0}</div>`;
 
-    // directions/professions blocks
     const dirs = c.catalog_top_directions || [];
     const profs = c.catalog_top_professions || [];
 
     const dirHTML = dirs.length
       ? dirs.map(d => `<div class="kv"><span><b>${escapeHtml_(d.direction)}</b></span><span>${d.score}</span></div>`).join("")
-      : `<div class="mini muted">Пока нет (ждём каталог)…</div>`;
+      : `<div class="mini muted">Нет (проверь контракт колонок в catalog_professions)</div>`;
 
     const profHTML = profs.length
       ? profs.slice(0,15).map(p => {
-          const nm = state.lang === "kg" && p.name_kg ? p.name_kg : p.name_ru;
+          const nm = (state.lang==="kg" && p.name_kg) ? p.name_kg : p.name_ru;
           const details = state.show_scoring_details
             ? `<div class="mini muted">match: blocks ${p.score.blocks} · roles ${p.score.roles} · clusters ${p.score.clusters}</div>`
             : "";
-          const sub = p.direction ? `<div class="mini">${escapeHtml_(p.direction)}</div>` : "";
-          return `<div class="kv"><span><b>${escapeHtml_(nm)}</b>${sub}${details}</span><span>${p.score.final}</span></div>`;
+          return `<div class="kv"><span><b>${escapeHtml_(nm)}</b><div class="mini">${escapeHtml_(p.direction||"")}</div>${details}</span><span>${p.score.final}</span></div>`;
         }).join("")
-      : `<div class="mini muted">Пока нет (ждём каталог)…</div>`;
+      : `<div class="mini muted">Нет (скорее всего пустой/невалидный blocks_target_json)</div>`;
 
     el.innerHTML = `
       <div class="card">
         <h3>Result</h3>
         <div class="mini">Ответов: ${answered}/${c.total_questions || 55}</div>
-
         <div class="mt"><b>Weighted index:</b> ${c.weighted_index ?? 0}</div>
         <div class="mt"><b>Confidence:</b> ${c.confidence ?? 0}</div>
-        <div class="mini mt">completion ${c.completion_score ?? 0} · consistency ${c.consistency_score ?? 0} · cases ${c.case_score ?? 0}</div>
-
         <div class="mt"><b>Feasibility:</b> ${c.feasibility ?? 0}</div>
         <div class="mt"><b>PCI:</b> ${c.pci ?? 0}</div>
       </div>
@@ -948,45 +751,23 @@
         </div>
       </div>
 
-      <div class="card mt">
-        <h3>Clusters</h3>
-        <div class="stack mt">${clusterItems || "<div class='mini'>Нет данных</div>"}</div>
-      </div>
+      <div class="card mt"><h3>Clusters</h3><div class="stack mt">${clusters}</div></div>
+      <div class="card mt"><h3>Roles</h3><div class="rowgap mt">${roles}</div></div>
+      <div class="card mt"><h3>Blocks</h3><div class="grid mt">${blockItems}</div></div>
 
-      <div class="card mt">
-        <h3>Roles (top 2–3)</h3>
-        <div class="rowgap mt">${pickedRoles || "<span class='mini'>Недостаточно данных</span>"}</div>
-      </div>
-
-      <div class="card mt">
-        <h3>Blocks (0–100)</h3>
-        <div class="grid mt">${blockItems}</div>
-      </div>
-
-      <div class="card mt">
-        <h3>TOP направления (детерминированно)</h3>
-        <div class="stack mt">${dirHTML}</div>
-      </div>
-
-      <div class="card mt">
-        <h3>TOP профессии (детерминированно)</h3>
-        <div class="stack mt">${profHTML}</div>
-      </div>
+      <div class="card mt"><h3>TOP направления (catalog)</h3><div class="stack mt">${dirHTML}</div></div>
+      <div class="card mt"><h3>TOP профессии (catalog)</h3><div class="stack mt">${profHTML}</div></div>
     `;
 
     $("#btn-refresh-catalog")?.addEventListener("click", async () => {
-      // reset cache + reload
       try { localStorage.removeItem(CATALOG_CACHE_KEY); } catch(_) {}
-      state.catalog_loaded = false;
-      state.catalog = null;
-      state.catalog_error = null;
+      state.catalog_loaded=false; state.catalog=null; state.catalog_error=null;
       renderResult();
       await ensureCatalogLoaded_();
       computeCatalogTopIntoComputed_();
       rebuildPrompts_();
       renderResult();
     });
-
     $("#btn-toggle-details")?.addEventListener("click", () => {
       state.show_scoring_details = !state.show_scoring_details;
       renderResult();
@@ -996,36 +777,29 @@
     if (passportEl) passportEl.value = passportText_(c.passport_struct || {});
   }
 
-  function escapeHtml_(s) {
-    return String(s ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
+  function escapeHtml_(s){
+    return String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
   }
 
-  // -------- copy buttons --------
-  async function copyText(text) { await navigator.clipboard.writeText(text); }
+  // copy buttons
+  const copyText = (t)=>navigator.clipboard.writeText(t);
   $("#btn-copy-passport")?.addEventListener("click", () => copyText($("#passport-text")?.value || ""));
   $("#btn-copy-full")?.addEventListener("click", () => copyText(state.full_prompt || ""));
   $("#btn-copy-short")?.addEventListener("click", () => copyText(state.short_prompt || ""));
 
-  // -------- submit to sheets --------
-  async function submitFull() {
+  // submit
+  async function submitFull(){
     const statusEl = $("#submit-status");
     if (!statusEl) return;
 
-    statusEl.textContent = "Отправляю данные…";
-
     if (!API_URL || API_URL.includes("PASTE_YOUR_WEB_APP_URL_HERE")) {
-      statusEl.textContent = "❌ API_URL не заполнен (js/main.js)";
+      statusEl.textContent = "❌ API_URL не заполнен";
       return;
     }
+    statusEl.textContent = "Отправляю…";
 
     if (!state.session_id) state.session_id = "sess_" + Date.now();
 
-    // ensure we have catalog tops if possible
     if (!state.catalog_loaded) await ensureCatalogLoaded_();
     computeCatalogTopIntoComputed_();
     rebuildPrompts_();
@@ -1055,25 +829,23 @@
 
     try {
       const res = await fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type":"text/plain;charset=UTF-8" },
+        method:"POST",
+        headers: {"Content-Type":"text/plain;charset=UTF-8"},
         body: JSON.stringify(payload)
       });
-      const json = await res.json();
-
-      if (!json.ok) {
-        statusEl.textContent = "❌ API error: " + (json.error || "unknown") + (json.details ? (" / " + json.details) : "");
+      const js = await res.json();
+      if (!js.ok) {
+        statusEl.textContent = "❌ API error: " + (js.error||"unknown");
         return;
       }
-
-      statusEl.textContent = "✅ Успешно отправлено. Session: " + json.session_id;
+      statusEl.textContent = "✅ Отправлено. Session: " + js.session_id;
       autosave_();
-    } catch (err) {
-      statusEl.textContent = "❌ Ошибка отправки: " + String(err);
+    } catch (e) {
+      statusEl.textContent = "❌ Ошибка: " + String(e);
     }
   }
   $("#btn-submit")?.addEventListener("click", submitFull);
 
-  // -------- init --------
+  // init
   showScreen("start");
 })();
