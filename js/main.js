@@ -144,7 +144,7 @@
   });
 
   $("#btn-cases-finish")?.addEventListener("click", () => {
-    computeDeterministic_(); // blocks + weights + roles + confidence + PCI + clusters
+    computeDeterministic_(); // now includes prompts + passport
     renderResult();
     showScreen("result");
   });
@@ -164,6 +164,7 @@
       .pill b { font-weight:700; }
       .mini { font-size: 14px; opacity: 0.85; }
       .stack { display:flex; flex-direction:column; gap:8px; }
+      textarea { width: 100%; border-radius: 12px; padding: 10px; border: 1px solid #2f3442; background: #0f1117; color: #e8e8e8; }
     `;
     document.head.appendChild(st);
   }
@@ -475,12 +476,10 @@
       why_kg: "Көндүм, рынок жана удалёнка форматы."
     };
 
-    // Порядок KG: кто ближе — тот первым
     const kgOrder = [];
     if (practicalOK && !academicOK) kgOrder.push(kg1, kg2);
     else if (!practicalOK && academicOK) kgOrder.push(kg2, kg1);
     else {
-      // если оба true или оба false — выбираем по “склонности”
       const practicalScore = (EF + (hasRole_(rolesPicked, "TEC") ? 10 : 0) + (hasRole_(rolesPicked, "ORG") ? 10 : 0));
       const academicScore = (CA + LR + (hasRole_(rolesPicked, "SYS") ? 15 : 0));
       kgOrder.push(practicalScore >= academicScore ? kg1 : kg2);
@@ -490,12 +489,122 @@
     const clusters = [...kgOrder];
     if (remoteOK) clusters.push(remote);
 
+    return { clusters, remoteOK, practicalOK, academicOK };
+  }
+
+  // -------- Passport + Prompts --------
+  function topBlocks_(blocks100, n = 3) {
+    const arr = Object.keys(blocks100 || {}).map(k => ({ key: k, score: blocks100[k] ?? 0 }));
+    arr.sort((a,b) => b.score - a.score);
+    return arr.slice(0, n);
+  }
+
+  function bottomBlocks_(blocks100, n = 2) {
+    const arr = Object.keys(blocks100 || {}).map(k => ({ key: k, score: blocks100[k] ?? 0 }));
+    arr.sort((a,b) => a.score - b.score);
+    return arr.slice(0, n);
+  }
+
+  function buildPassportStruct_(computed) {
+    const blocks = computed.blocks || {};
+    const rolesPicked = computed.roles_picked || [];
+    const clusters = computed.clusters || [];
+
     return {
-      practicalOK,
-      academicOK,
-      remoteOK,
-      clusters
+      version: state.version,
+      lang: state.lang,
+      grade: state.grade,
+      name: state.cr?.name || "",
+      gender: state.cr?.gender || "",
+      city: state.cr?.city || "",
+      answered: `${computed.answered_count}/${computed.total_questions}`,
+      weighted_index: computed.weighted_index,
+      confidence: computed.confidence,
+      feasibility: computed.feasibility,
+      pci: computed.pci,
+      blocks,
+      top_blocks: topBlocks_(blocks, 3),
+      weak_blocks: bottomBlocks_(blocks, 2),
+      roles_picked: rolesPicked.map(r => ({ key: r.key, name: roleName_(r.key), score: r.score })),
+      clusters: clusters.map(c => ({
+        key: c.key,
+        name: state.lang === "kg" ? c.name_kg : c.name_ru,
+        why: state.lang === "kg" ? c.why_kg : c.why_ru
+      })),
+      cases: [
+        (state.cases[0] || "").trim(),
+        (state.cases[1] || "").trim(),
+        (state.cases[2] || "").trim()
+      ]
     };
+  }
+
+  function passportText_(ps) {
+    const lines = [];
+    lines.push(`CFE ENGINE PASSPORT`);
+    lines.push(`version: ${ps.version}`);
+    lines.push(`lang: ${ps.lang} | grade: ${ps.grade}`);
+    lines.push(`name: ${ps.name || "-"} | gender: ${ps.gender || "-"} | city: ${ps.city || "-"}`);
+    lines.push(`answered: ${ps.answered}`);
+    lines.push(``);
+    lines.push(`INDEXES`);
+    lines.push(`weighted_index: ${ps.weighted_index}`);
+    lines.push(`confidence: ${ps.confidence}`);
+    lines.push(`feasibility: ${ps.feasibility}`);
+    lines.push(`PCI: ${ps.pci}`);
+    lines.push(``);
+    lines.push(`ROLES (top 2–3)`);
+    for (const r of ps.roles_picked) lines.push(`- ${r.name}: ${r.score}`);
+    lines.push(``);
+    lines.push(`CLUSTERS`);
+    for (const c of ps.clusters) lines.push(`- ${c.name} — ${c.why}`);
+    lines.push(``);
+    lines.push(`BLOCKS (0–100)`);
+    for (const k of (window.CFE?.BLOCKS || Object.keys(ps.blocks))) lines.push(`${k}: ${ps.blocks[k] ?? 0}`);
+    lines.push(``);
+    lines.push(`TOP BLOCKS`);
+    for (const t of ps.top_blocks) lines.push(`- ${t.key}: ${t.score}`);
+    lines.push(`WEAK BLOCKS`);
+    for (const w of ps.weak_blocks) lines.push(`- ${w.key}: ${w.score}`);
+    lines.push(``);
+    lines.push(`CASES`);
+    lines.push(`1) ${ps.cases[0] || "-"}`);
+    lines.push(`2) ${ps.cases[1] || "-"}`);
+    lines.push(`3) ${ps.cases[2] || "-"}`);
+    return lines.join("\n");
+  }
+
+  function buildFullPrompt_(ps) {
+    // Цель: ИИ пишет строго по данным, без фантазии.
+    return [
+      `Ты — карьерный аналитик для подростков Кыргызстана. Пиши простым, дружелюбным, но чётким языком.`,
+      `ВАЖНО: ничего не выдумывай. Используй ТОЛЬКО данные из PASSPORT_STRUCT и текст кейсов.`,
+      `Если данных не хватает — так и скажи: "данных недостаточно, чтобы утверждать X".`,
+      ``,
+      `ЗАДАЧА:`,
+      `1) Сначала дай короткий вывод на 5–7 строк: кто это по профилю, где сильнее всего, где риски.`,
+      `2) Объясни роли (2–3) и что они значат на практике.`,
+      `3) Объясни 2 KG-кластера (и Remote если есть): что это за путь, кому подходит, первые шаги.`,
+      `4) Дай рекомендации: 5 конкретных шагов на 7 дней (учёба/практика/среда/навыки).`,
+      `5) Выдай список:`,
+      `   - 7 подходящих направлений (широкие области)`,
+      `   - 15 профессий (реалистично для Кыргызстана + если Remote, то и международные)`,
+      `   - 5 "НЕ подходит сейчас" и почему (опирайся на weak_blocks).`,
+      `6) В конце: как повысить confidence/PCI (что улучшить в блоках и что дописать в кейсах).`,
+      ``,
+      `PASSPORT_STRUCT (JSON):`,
+      JSON.stringify(ps, null, 2)
+    ].join("\n");
+  }
+
+  function buildShortPrompt_(ps) {
+    return [
+      `Сделай короткий разбор (до 12 строк) по данным PASSPORT_STRUCT.`,
+      `Ничего не выдумывай.`,
+      `Дай: 1) 2–3 роли, 2) 2 кластера, 3) 5 направлений, 4) 5 шагов на неделю.`,
+      `PASSPORT_STRUCT:`,
+      JSON.stringify(ps)
+    ].join("\n");
   }
 
   function computeDeterministic_() {
@@ -511,7 +620,7 @@
     const pciRes = computePCI_(weighted_index, conf.confidence, blocks100);
     const clustersRes = computeClusters_(blocks100, rolesRes.picked);
 
-    state.computed = {
+    const computed = {
       blocks: blocks100,
       blocks_avg_1to5: blocksAvg,
       blocks_counts: counts,
@@ -540,8 +649,13 @@
       total_questions: qs.length
     };
 
-    state.full_prompt = "";
-    state.short_prompt = "";
+    // passport struct + prompts
+    const ps = buildPassportStruct_(computed);
+    computed.passport_struct = ps;
+
+    state.computed = computed;
+    state.full_prompt = buildFullPrompt_(ps);
+    state.short_prompt = buildShortPrompt_(ps);
 
     autosave_();
   }
@@ -565,11 +679,6 @@
       return `<span class="pill"><b>${name}</b> ${x.score}</span>`;
     }).join(" ");
 
-    const topAll = (c.roles_sorted || []).map(x => {
-      const name = roleName_(x.key);
-      return `<div class="kv"><span><b>${name}</b></span><span>${x.score}</span></div>`;
-    }).join("");
-
     const clusterItems = (c.clusters || []).map(cl => {
       const title = state.lang === "kg" ? cl.name_kg : cl.name_ru;
       const why = state.lang === "kg" ? cl.why_kg : cl.why_ru;
@@ -578,69 +687,38 @@
 
     el.innerHTML = `
       <div class="card">
-        <h3>Результат (детерминированно)</h3>
+        <h3>Result</h3>
         <div class="mini">Ответов: ${answered}/${c.total_questions || 55}</div>
 
-        <div class="mt"><b>Индекс соответствия (0–100):</b> ${c.weighted_index ?? 0}</div>
-        <div class="mt"><b>Confidence (0–100):</b> ${c.confidence ?? 0}</div>
-        <div class="mini mt">
-          completion ${c.completion_score ?? 0} · consistency ${c.consistency_score ?? 0} · cases ${c.case_score ?? 0}
-        </div>
+        <div class="mt"><b>Weighted index:</b> ${c.weighted_index ?? 0}</div>
+        <div class="mt"><b>Confidence:</b> ${c.confidence ?? 0}</div>
+        <div class="mini mt">completion ${c.completion_score ?? 0} · consistency ${c.consistency_score ?? 0} · cases ${c.case_score ?? 0}</div>
 
-        <div class="mt"><b>Feasibility (0–100):</b> ${c.feasibility ?? 0}</div>
-        <div class="mt"><b>PCI (0–100):</b> ${c.pci ?? 0}</div>
-        <div class="mini mt">PCI = (0.6*index + 0.4*feasibility) × confidence</div>
+        <div class="mt"><b>Feasibility:</b> ${c.feasibility ?? 0}</div>
+        <div class="mt"><b>PCI:</b> ${c.pci ?? 0}</div>
       </div>
 
       <div class="card mt">
-        <h3>Кластеры траектории</h3>
-        <p class="mini">Всегда 2 KG + Remote, если подходит.</p>
+        <h3>Clusters</h3>
         <div class="stack mt">${clusterItems || "<div class='mini'>Нет данных</div>"}</div>
       </div>
 
       <div class="card mt">
-        <h3>Твои роли (топ 2–3)</h3>
-        <p class="mini">Выбор идёт из RP-вопросов, без “фантазий”.</p>
+        <h3>Roles (top 2–3)</h3>
         <div class="row mt">${picked || "<span class='mini'>Недостаточно данных</span>"}</div>
-
-        <div class="mt mini">Все роли:</div>
-        <div class="grid mt">${topAll}</div>
       </div>
 
       <div class="card mt">
-        <h3>Твои 9 блоков (0–100)</h3>
-        <p class="mini">Чистый расчёт по ответам (1–5) с нормировкой.</p>
+        <h3>Blocks (0–100)</h3>
         <div class="grid mt">${blockItems}</div>
       </div>
     `;
 
+    // Passport textarea — теперь реальный текст
     const passportEl = $("#passport-text");
     if (passportEl) {
-      passportEl.value =
-        `CFE Engine Passport (v${state.version})\n` +
-        `Name: ${state.cr?.name || "-"}\n` +
-        `Gender: ${state.cr?.gender || "-"}\n` +
-        `City: ${state.cr?.city || "-"}\n` +
-        `Lang: ${state.lang}\n` +
-        `Grade: ${state.grade}\n` +
-        `Answered: ${answered}/${c.total_questions || 55}\n\n` +
-        `Weighted index (0-100): ${c.weighted_index ?? 0}\n` +
-        `Confidence (0-100): ${c.confidence ?? 0}\n` +
-        `  completion: ${c.completion_score ?? 0}\n` +
-        `  consistency: ${c.consistency_score ?? 0}\n` +
-        `  cases: ${c.case_score ?? 0}\n` +
-        `Feasibility (0-100): ${c.feasibility ?? 0}\n` +
-        `PCI (0-100): ${c.pci ?? 0}\n\n` +
-        `Clusters:\n` +
-        `${(c.clusters || []).map(cl => `- ${(state.lang === "kg" ? cl.name_kg : cl.name_ru)}`).join("\n")}\n\n` +
-        `Blocks (0-100):\n` +
-        `${order.map(b => `${b}: ${blocks[b] ?? 0}`).join("\n")}\n\n` +
-        `Roles (picked):\n` +
-        `${(c.roles_picked || []).map(x => `${roleName_(x.key)}: ${x.score}`).join("\n")}\n\n` +
-        `Cases:\n` +
-        `1) ${(state.cases[0] || "").trim()}\n` +
-        `2) ${(state.cases[1] || "").trim()}\n` +
-        `3) ${(state.cases[2] || "").trim()}\n`;
+      const ps = c.passport_struct || {};
+      passportEl.value = passportText_(ps);
     }
   }
 
