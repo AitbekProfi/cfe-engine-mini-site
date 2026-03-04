@@ -2,7 +2,7 @@
   const $ = (sel) => document.querySelector(sel);
 
   // === CFE Engine API (Google Apps Script Web App) ===
-  const API_URL = "https://script.google.com/macros/s/AKfycby-RHZI3fRO9JaMmgUeWtMdAoPzeBQ3Lb1zawS65fyItLSSzqePFnjlE8xrWkP-fCPNMQ/exec"; // https://script.google.com/macros/s/.../exec
+  const API_URL = "https://script.google.com/macros/s/AKfycbzOYpBhtwhDzV_Yph3mjAoybsrNY71wd1beVUBCDv0Ezy7I6AHZNyO1akedpOYurp3jvQ/exec"; // https://script.google.com/macros/s/.../exec
 
   const state = {
     lang: "ru",
