@@ -1,7 +1,7 @@
 (() => {
   const $ = (sel) => document.querySelector(sel);
 
-  const API_URL = "https://script.google.com/macros/s/AKfycbzOYpBhtwhDzV_Yph3mjAoybsrNY71wd1beVUBCDv0Ezy7I6AHZNyO1akedpOYurp3jvQ/exec"; // .../exec
+  const API_URL = "https://script.google.com/macros/s/AKfycbzOYpBhtwhDzV_Yph3mjAoybsrNY71wd1beVUBCDv0Ezy7I6AHZNyO1akedpOYurp3jvQ/exec";
 
   const state = {
     lang: "ru",
@@ -18,10 +18,10 @@
     catalog: null,
     catalog_loaded: false,
     catalog_error: null,
+    catalog_warnings: [],
     show_scoring_details: false
   };
 
-  // screens
   const screens = ["start", "test", "cr", "cases", "result"];
   function showScreen(name) {
     for (const s of screens) {
@@ -31,9 +31,8 @@
     }
   }
 
-  // storage
   const LS_KEY = "cfe_full_state_v1";
-  const CATALOG_CACHE_KEY = "cfe_catalog_cache_v1";
+  const CATALOG_CACHE_KEY = "cfe_catalog_cache_v2";
   const CATALOG_CACHE_TTL_MS = 1000 * 60 * 60 * 6;
 
   function autosave_() {
@@ -49,6 +48,7 @@
       }));
     } catch (_) {}
   }
+
   function autoload_() {
     try {
       const raw = localStorage.getItem(LS_KEY);
@@ -66,7 +66,6 @@
   }
   autoload_();
 
-  // start controls
   $("#btn-lang-ru")?.addEventListener("click", () => { state.lang = "ru"; autosave_(); });
   $("#btn-lang-kg")?.addEventListener("click", () => { state.lang = "kg"; autosave_(); });
   $("#btn-grade-9")?.addEventListener("click", () => { state.grade = 9; autosave_(); });
@@ -77,7 +76,6 @@
     showScreen("test");
   });
 
-  // test render
   function renderTest() {
     const qs = window.CFE?.QUESTIONS || [];
     const container = $("#test-container");
@@ -124,7 +122,6 @@
     $("#test-progress") && ($("#test-progress").textContent = `Ответов: ${answered}/${qs.length}`);
   }
 
-  // nav
   $("#btn-test-next")?.addEventListener("click", () => { renderCR(); showScreen("cr"); });
   $("#btn-cr-next")?.addEventListener("click", () => { renderCases(); showScreen("cases"); });
 
@@ -139,7 +136,6 @@
     renderResult();
   });
 
-  // style
   function injectInputStyle_() {
     if (document.getElementById("cfe-input-style")) return;
     const st = document.createElement("style");
@@ -163,7 +159,6 @@
     document.head.appendChild(st);
   }
 
-  // CR
   function renderCR() {
     const el = $("#cr-container");
     if (!el) return;
@@ -198,7 +193,6 @@
     mark();
   }
 
-  // cases
   function renderCases() {
     const el = $("#cases-container");
     if (!el) return;
@@ -220,7 +214,6 @@
     c3?.addEventListener("input",()=>{ state.cases[2]=c3.value; autosave_(); });
   }
 
-  // core helpers
   const clamp_ = (v,a,b)=>Math.max(a,Math.min(b,v));
   const parseJSON_ = (s)=>{ try { return JSON.parse(s); } catch(_) { return null; } };
 
@@ -229,6 +222,7 @@
     if (!Number.isFinite(x)) return 0;
     return clamp_(Math.round(((x-1)/4)*100),0,100);
   }
+
   function scoreAnswer_(v, rev) {
     const n = Number(v);
     if (!Number.isFinite(n) || n<1 || n>5) return null;
@@ -264,7 +258,6 @@
       if (q.block!=="RP" || !q.role) continue;
       const scored = scoreAnswer_(answers[q.id], !!q.rev);
       if (scored==null) continue;
-      if (!roleSums.hasOwnProperty(q.role)) { roleSums[q.role]=0; roleCounts[q.role]=0; }
       roleSums[q.role]+=scored; roleCounts[q.role]+=1;
     }
 
@@ -304,6 +297,7 @@
     const v=arr.reduce((a,b)=>a+(b-m)*(b-m),0)/arr.length;
     return Math.sqrt(v);
   }
+
   function computeConfidence_(answered,total,blocks100,cases) {
     const completion = total>0 ? Math.round((answered/total)*100) : 0;
     const values=Object.values(blocks100||{}).filter(v=>Number.isFinite(v));
@@ -322,6 +316,7 @@
   }
 
   function hasRole_(picked,key){ return (picked||[]).some(x=>x.key===key); }
+
   function computeClusters_(blocks100,rolesPicked){
     const CA=blocks100.CA??0, LR=blocks100.LR??0, EP=blocks100.EP??0, MR=blocks100.MR??0, EF=blocks100.EF??0;
     const practicalOK=(EF>=55)&&(hasRole_(rolesPicked,"TEC")||hasRole_(rolesPicked,"ORG"));
@@ -349,10 +344,10 @@
     return { clusters, remote_ok: remoteOK };
   }
 
-  // passport + prompts (including catalog)
   function topBlocks_(blocks100,n=3){
     return Object.keys(blocks100||{}).map(k=>({key:k,score:blocks100[k]??0})).sort((a,b)=>b.score-a.score).slice(0,n);
   }
+
   function bottomBlocks_(blocks100,n=2){
     return Object.keys(blocks100||{}).map(k=>({key:k,score:blocks100[k]??0})).sort((a,b)=>a.score-b.score).slice(0,n);
   }
@@ -400,9 +395,6 @@
     L.push(`feasibility: ${ps.feasibility}`);
     L.push(`PCI: ${ps.pci}`);
     L.push("");
-    L.push("ROLES");
-    for (const r of ps.roles_picked) L.push(`- ${r.name}: ${r.score}`);
-    L.push("");
     L.push("TOP DIRECTIONS (catalog)");
     for (const d of (ps.catalog_top_directions||[])) L.push(`- ${d.direction}: ${d.score}`);
     L.push("");
@@ -419,31 +411,26 @@
   function buildFullPrompt_(ps){
     return [
       `Ты — карьерный аналитик для подростков Кыргызстана.`,
-      `ВАЖНО: ничего не выдумывай. Используй ТОЛЬКО PASSPORT_STRUCT.`,
-      `Используй catalog_top_directions и catalog_top_professions как основу.`,
-      ``,
+      `Используй только PASSPORT_STRUCT.`,
+      `Не выдумывай.`,
       `PASSPORT_STRUCT:`,
       JSON.stringify(ps, null, 2)
     ].join("\n");
   }
+
   function buildShortPrompt_(ps){
     return [
-      `Короткий разбор по PASSPORT_STRUCT. Не выдумывай.`,
+      `Короткий разбор по PASSPORT_STRUCT.`,
       JSON.stringify(ps)
     ].join("\n");
   }
+
   function rebuildPrompts_(){
     if (!state.computed?.passport_struct) return;
     const ps = state.computed.passport_struct;
     state.full_prompt = buildFullPrompt_(ps);
     state.short_prompt = buildShortPrompt_(ps);
   }
-
-  // =============================
-  // CATALOG CONTRACT v1
-  // =============================
-  // expected columns:
-  // id,name_ru,name_kg,direction,kg,remote_ok,roles_csv,blocks_target_json,roles_weight_json,clusters_csv,notes
 
   function loadCatalogFromCache_(){
     try {
@@ -452,16 +439,16 @@
       const obj=JSON.parse(raw);
       if (!obj || !obj.ts || !Array.isArray(obj.items)) return null;
       if ((Date.now()-obj.ts) > CATALOG_CACHE_TTL_MS) return null;
-      return obj.items;
+      return obj;
     } catch(_) { return null; }
   }
-  function saveCatalogToCache_(items){
-    try { localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify({ts:Date.now(), items})); } catch(_) {}
+
+  function saveCatalogToCache_(items, warnings){
+    try { localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify({ts:Date.now(), items, warnings})); } catch(_) {}
   }
 
   async function fetchCatalog_(){
     if (!API_URL || API_URL.includes("PASTE_YOUR_WEB_APP_URL_HERE")) throw new Error("API_URL not set");
-    // POST
     try {
       const res = await fetch(API_URL, {
         method:"POST",
@@ -472,7 +459,6 @@
       if (js && js.ok) return js.items || [];
       throw new Error("catalog: bad response");
     } catch (e) {
-      // GET fallback
       const url = `${API_URL}?action=get_catalog_professions`;
       const res = await fetch(url, { method:"GET" });
       const js = await res.json();
@@ -481,54 +467,83 @@
     }
   }
 
-  function normalizeCatalogItemV1_(row){
+  function normalizeCatalogItemV1_(row, rowIndex, seenIds){
+    const warnings = [];
     const id = String(row.id || "").trim();
     const name_ru = String(row.name_ru || "").trim();
-    if (!id || !name_ru) return null;
+
+    if (!id) {
+      warnings.push(`Строка ${rowIndex}: пустой id`);
+      return { item: null, warnings };
+    }
+    if (seenIds.has(id)) {
+      warnings.push(`Строка ${rowIndex}: duplicate id "${id}"`);
+      return { item: null, warnings };
+    }
+    if (!name_ru) {
+      warnings.push(`Строка ${rowIndex}: пустой name_ru`);
+      return { item: null, warnings };
+    }
+
+    const rawTargets = String(row.blocks_target_json || "").trim();
+    const rawRoleWeights = String(row.roles_weight_json || "").trim();
+
+    const blocks_target = parseJSON_(rawTargets);
+    if (!blocks_target || typeof blocks_target !== "object") {
+      warnings.push(`Строка ${rowIndex}: invalid blocks_target_json`);
+      return { item: null, warnings };
+    }
+
+    const BLOCKS = window.CFE?.BLOCKS || ["CA","RP","EP","MC","ER","LR","CR","MR","EF"];
+    const missingBlocks = BLOCKS.filter(b => !Number.isFinite(Number(blocks_target[b])));
+    if (missingBlocks.length) {
+      warnings.push(`Строка ${rowIndex}: missing block targets [${missingBlocks.join(", ")}]`);
+      return { item: null, warnings };
+    }
+
+    const roles_weight = rawRoleWeights ? parseJSON_(rawRoleWeights) : {};
+    if (rawRoleWeights && (!roles_weight || typeof roles_weight !== "object")) {
+      warnings.push(`Строка ${rowIndex}: invalid roles_weight_json`);
+      return { item: null, warnings };
+    }
 
     const item = {
       id,
       name_ru,
       name_kg: String(row.name_kg || "").trim(),
-      direction: String(row.direction || "").trim(),
-      kg: String(row.kg || "").trim().toUpperCase(), // KG1/KG2
+      direction: String(row.direction || "").trim() || "Без категории",
+      kg: String(row.kg || "").trim().toUpperCase(),
       remote_ok: String(row.remote_ok || "").toUpperCase() === "TRUE",
       roles_csv: String(row.roles_csv || "").trim(),
       clusters_csv: String(row.clusters_csv || "").trim(),
-      blocks_target: parseJSON_(String(row.blocks_target_json || "").trim()) || null,
-      roles_weight: parseJSON_(String(row.roles_weight_json || "").trim()) || null,
+      blocks_target,
+      roles_weight,
       notes: String(row.notes || "")
     };
 
-    // default clusters from kg/remote
     const clusters = new Set();
     if (item.kg === "KG1" || item.kg === "KG2") clusters.add(item.kg);
     if (item.remote_ok) clusters.add("REMOTE");
     if (item.clusters_csv) item.clusters_csv.split(",").map(s=>s.trim()).filter(Boolean).forEach(x=>clusters.add(x.toUpperCase()));
     item.clusters = [...clusters];
 
-    // roles set (optional)
     item.roles = item.roles_csv
       ? item.roles_csv.split(",").map(s=>s.trim()).filter(Boolean).map(x=>x.toUpperCase())
       : [];
 
-    // validate targets
-    const BLOCKS = window.CFE?.BLOCKS || ["CA","RP","EP","MC","ER","LR","CR","MR","EF"];
-    if (!item.blocks_target || !BLOCKS.some(b => item.blocks_target[b] != null)) {
-      // если нет targets — нельзя честно скорить
-      item.blocks_target = null;
-    }
-
-    return item;
+    seenIds.add(id);
+    return { item, warnings };
   }
 
   async function ensureCatalogLoaded_(){
     if (state.catalog_loaded && Array.isArray(state.catalog)) return;
     state.catalog_error = null;
+    state.catalog_warnings = [];
 
     const cached = loadCatalogFromCache_();
     if (cached) {
-      state.catalog = cached;
+      state.catalog = cached.items;
+      state.catalog_warnings = cached.warnings || [];
       state.catalog_loaded = true;
       return;
     }
@@ -536,13 +551,19 @@
     try {
       const rows = await fetchCatalog_();
       const items = [];
-      for (const r of rows) {
-        const it = normalizeCatalogItemV1_(r);
-        if (it) items.push(it);
-      }
+      const warnings = [];
+      const seenIds = new Set();
+
+      rows.forEach((r, idx) => {
+        const res = normalizeCatalogItemV1_(r, idx + 2, seenIds);
+        if (res.warnings.length) warnings.push(...res.warnings);
+        if (res.item) items.push(res.item);
+      });
+
       state.catalog = items;
       state.catalog_loaded = true;
-      saveCatalogToCache_(items);
+      state.catalog_warnings = warnings;
+      saveCatalogToCache_(items, warnings);
     } catch (e) {
       state.catalog = null;
       state.catalog_loaded = true;
@@ -550,7 +571,6 @@
     }
   }
 
-  // scoring for v1
   function scoreByTargets_(userBlocks, targets){
     const keys = window.CFE?.BLOCKS || Object.keys(userBlocks||{});
     let sum=0,cnt=0;
@@ -589,12 +609,9 @@
   }
 
   function scoreProfessionV1_(computed, item){
-    if (!item.blocks_target) return { final: 0, blocks: 0, roles: 0, clusters: 0 };
-
     const sBlocks = scoreByTargets_(computed.blocks || {}, item.blocks_target);
     const sRoles  = scoreRolesByWeights_(computed.roles_picked || [], item.roles_weight || {});
     const sClus   = scoreClusters_(computed.clusters || [], item.clusters || []);
-
     const final = Math.round(0.60*sBlocks + 0.25*sRoles + 0.15*sClus);
     return { final: clamp_(final,0,100), blocks:sBlocks, roles:sRoles, clusters:sClus };
   }
@@ -617,14 +634,16 @@
       score: x.score
     }));
 
-    // top directions
     const dirMap = new Map();
     for (const x of scored) {
       const d = x.item.direction || "Без категории";
       if (!dirMap.has(d)) dirMap.set(d, { direction:d, sum:0, cnt:0, best:0 });
       const g = dirMap.get(d);
-      g.sum += x.score.final; g.cnt++; g.best = Math.max(g.best, x.score.final);
+      g.sum += x.score.final;
+      g.cnt++;
+      g.best = Math.max(g.best, x.score.final);
     }
+
     const topDir = [...dirMap.values()].map(g => ({
       direction: g.direction,
       score: Math.round(0.7*(g.sum/g.cnt) + 0.3*g.best)
@@ -635,7 +654,6 @@
     state.computed.passport_struct = buildPassportStruct_(state.computed);
   }
 
-  // main compute
   function computeDeterministic_(){
     const qs = window.CFE?.QUESTIONS || [];
     const answered = Object.keys(state.answers || {}).length;
@@ -651,36 +669,28 @@
       blocks: blocks100,
       blocks_avg_1to5: blocksAvg,
       blocks_counts: counts,
-
       weighted_index,
-
       roles: rolesRes.roles100,
       roles_avg_1to5: rolesRes.rolesAvg,
       roles_counts: rolesRes.roleCounts,
       roles_sorted: rolesRes.sorted,
       roles_picked: rolesRes.picked,
-
       completion_score: conf.completion_score,
       consistency_score: conf.consistency_score,
       case_score: conf.case_score,
       confidence: conf.confidence,
-
       feasibility: pciRes.feasibility,
       pci_raw: pciRes.pci_raw,
       pci: pciRes.pci,
-
       clusters: clustersRes.clusters,
       remote_ok: clustersRes.remote_ok,
-
       answered_count: answered,
       total_questions: qs.length,
-
       catalog_top_directions: [],
       catalog_top_professions: []
     };
 
     c.passport_struct = buildPassportStruct_(c);
-
     state.computed = c;
     state.full_prompt = buildFullPrompt_(c.passport_struct);
     state.short_prompt = buildShortPrompt_(c.passport_struct);
@@ -688,7 +698,6 @@
     autosave_();
   }
 
-  // result render
   function renderResult(){
     const el = $("#result-container");
     if (!el) return;
@@ -696,13 +705,11 @@
 
     const c = state.computed || {};
     const answered = c.answered_count ?? Object.keys(state.answers||{}).length;
-
     const blocks = c.blocks || {};
     const order = window.CFE?.BLOCKS || Object.keys(blocks);
+
     const blockItems = order.map(b => `<div class="kv"><span><b>${b}</b></span><span>${blocks[b] ?? 0}</span></div>`).join("");
-
     const roles = (c.roles_picked||[]).map(r => `<span class="pill"><b>${escapeHtml_(roleName_(r.key))}</b> ${r.score}</span>`).join(" ");
-
     const clusters = (c.clusters||[]).map(cl => {
       const title = state.lang==="kg" ? cl.name_kg : cl.name_ru;
       const why = state.lang==="kg" ? cl.why_kg : cl.why_ru;
@@ -713,14 +720,18 @@
       ? `<div class="mini muted">Каталог загружается…</div>`
       : state.catalog_error
         ? `<div class="warn mini">❌ catalog_professions: ${escapeHtml_(state.catalog_error)}</div>`
-        : `<div class="ok mini">✅ Каталог загружен: ${Array.isArray(state.catalog)?state.catalog.length:0}</div>`;
+        : `<div class="ok mini">✅ Каталог валиден: ${Array.isArray(state.catalog)?state.catalog.length:0} строк</div>`;
+
+    const warningsHTML = state.catalog_warnings?.length
+      ? `<div class="warn mini mt">⚠️ Пропущено строк: ${state.catalog_warnings.length}<br>${state.catalog_warnings.slice(0,10).map(w=>escapeHtml_(w)).join("<br>")}</div>`
+      : "";
 
     const dirs = c.catalog_top_directions || [];
     const profs = c.catalog_top_professions || [];
 
     const dirHTML = dirs.length
       ? dirs.map(d => `<div class="kv"><span><b>${escapeHtml_(d.direction)}</b></span><span>${d.score}</span></div>`).join("")
-      : `<div class="mini muted">Нет (проверь контракт колонок в catalog_professions)</div>`;
+      : `<div class="mini muted">Нет валидных направлений</div>`;
 
     const profHTML = profs.length
       ? profs.slice(0,15).map(p => {
@@ -730,7 +741,7 @@
             : "";
           return `<div class="kv"><span><b>${escapeHtml_(nm)}</b><div class="mini">${escapeHtml_(p.direction||"")}</div>${details}</span><span>${p.score.final}</span></div>`;
         }).join("")
-      : `<div class="mini muted">Нет (скорее всего пустой/невалидный blocks_target_json)</div>`;
+      : `<div class="mini muted">Нет валидных профессий</div>`;
 
     el.innerHTML = `
       <div class="card">
@@ -745,6 +756,7 @@
       <div class="card mt">
         <h3>Catalog status</h3>
         ${catalogStatus}
+        ${warningsHTML}
         <div class="rowgap mt">
           <button id="btn-refresh-catalog" class="btn" type="button">Обновить каталог</button>
           <button id="btn-toggle-details" class="btn" type="button">${state.show_scoring_details ? "Скрыть детали" : "Показать детали"}</button>
@@ -754,20 +766,23 @@
       <div class="card mt"><h3>Clusters</h3><div class="stack mt">${clusters}</div></div>
       <div class="card mt"><h3>Roles</h3><div class="rowgap mt">${roles}</div></div>
       <div class="card mt"><h3>Blocks</h3><div class="grid mt">${blockItems}</div></div>
-
       <div class="card mt"><h3>TOP направления (catalog)</h3><div class="stack mt">${dirHTML}</div></div>
       <div class="card mt"><h3>TOP профессии (catalog)</h3><div class="stack mt">${profHTML}</div></div>
     `;
 
     $("#btn-refresh-catalog")?.addEventListener("click", async () => {
       try { localStorage.removeItem(CATALOG_CACHE_KEY); } catch(_) {}
-      state.catalog_loaded=false; state.catalog=null; state.catalog_error=null;
+      state.catalog_loaded=false;
+      state.catalog=null;
+      state.catalog_error=null;
+      state.catalog_warnings=[];
       renderResult();
       await ensureCatalogLoaded_();
       computeCatalogTopIntoComputed_();
       rebuildPrompts_();
       renderResult();
     });
+
     $("#btn-toggle-details")?.addEventListener("click", () => {
       state.show_scoring_details = !state.show_scoring_details;
       renderResult();
@@ -778,16 +793,19 @@
   }
 
   function escapeHtml_(s){
-    return String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
+    return String(s??"")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
   }
 
-  // copy buttons
   const copyText = (t)=>navigator.clipboard.writeText(t);
   $("#btn-copy-passport")?.addEventListener("click", () => copyText($("#passport-text")?.value || ""));
   $("#btn-copy-full")?.addEventListener("click", () => copyText(state.full_prompt || ""));
   $("#btn-copy-short")?.addEventListener("click", () => copyText(state.short_prompt || ""));
 
-  // submit
   async function submitFull(){
     const statusEl = $("#submit-status");
     if (!statusEl) return;
@@ -810,19 +828,15 @@
       version: state.version,
       lang: state.lang,
       grade: state.grade,
-
       name: state.cr?.name || "",
       gender: state.cr?.gender || "",
-
       answers_json: JSON.stringify(state.answers || {}),
       cr_json: JSON.stringify(state.cr || {}),
       cases_json: JSON.stringify(state.cases || []),
       computed_json: JSON.stringify(state.computed || {}),
-
       passport_text: $("#passport-text")?.value || "",
       full_prompt: state.full_prompt || "",
       short_prompt: state.short_prompt || "",
-
       user_agent: navigator.userAgent,
       page_url: location.href
     };
@@ -846,6 +860,5 @@
   }
   $("#btn-submit")?.addEventListener("click", submitFull);
 
-  // init
   showScreen("start");
 })();
