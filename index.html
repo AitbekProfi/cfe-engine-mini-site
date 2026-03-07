@@ -2,15 +2,18 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>CFE Engine — Full</title>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
   <main class="app">
+    <!-- START -->
     <section id="screen-start" class="screen is-active">
-      <h1>CFE Engine</h1>
-      <p>Выбери язык и класс, чтобы начать.</p>
+      <div class="hero">
+        <h1>CFE Engine</h1>
+        <p class="lead">Профориентационный mini-site: тест → контекст → кейсы → детерминированный результат.</p>
+      </div>
 
       <div class="card">
         <label>Язык</label>
@@ -25,42 +28,69 @@
           <button id="btn-grade-11" class="btn btn-primary" type="button">11 класс</button>
         </div>
 
-        <button id="btn-start" class="btn btn-wide mt" type="button">Начать тест</button>
+        <button id="btn-start" class="btn btn-wide btn-primary mt" type="button">Начать тест</button>
       </div>
     </section>
 
+    <!-- TEST -->
     <section id="screen-test" class="screen">
-      <h2>Тест (55 вопросов)</h2>
-      <div id="test-progress" class="muted"></div>
-      <div id="test-container"></div>
-      <div class="row mt">
-        <button id="btn-test-next" class="btn btn-primary" type="button">Дальше</button>
+      <div class="card sticky-card">
+        <div class="row space-between">
+          <div>
+            <h2>Тест</h2>
+            <div id="test-progress-text" class="muted">Вопрос 1 из 55</div>
+          </div>
+          <div id="test-answered-badge" class="badge">0 / 55</div>
+        </div>
+
+        <div class="progress mt">
+          <div id="test-progress-bar" class="progress-fill" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div id="test-question-card" class="card mt"></div>
+
+      <div class="row space-between mt">
+        <button id="btn-test-prev" class="btn" type="button">Назад</button>
+        <button id="btn-test-next-question" class="btn btn-primary" type="button">Дальше</button>
+      </div>
+
+      <div class="card mt">
+        <div class="row space-between">
+          <div class="muted">После 55 вопросов перейдёшь к контексту.</div>
+          <button id="btn-test-to-cr" class="btn" type="button">Перейти к контексту</button>
+        </div>
       </div>
     </section>
 
+    <!-- CR -->
     <section id="screen-cr" class="screen">
       <h2>Контекст</h2>
       <div id="cr-container"></div>
-      <div class="row mt">
+      <div class="row mt space-between">
+        <button id="btn-cr-back" class="btn" type="button">Назад</button>
         <button id="btn-cr-next" class="btn btn-primary" type="button">Дальше</button>
       </div>
     </section>
 
+    <!-- CASES -->
     <section id="screen-cases" class="screen">
       <h2>Кейсы</h2>
       <div id="cases-container"></div>
-      <div class="row mt">
+      <div class="row mt space-between">
+        <button id="btn-cases-back" class="btn" type="button">Назад</button>
         <button id="btn-cases-finish" class="btn btn-primary" type="button">Получить результат</button>
       </div>
     </section>
 
+    <!-- RESULT -->
     <section id="screen-result" class="screen">
       <h2>Результат</h2>
       <div id="result-container"></div>
 
       <div class="card mt">
         <h3>Passport</h3>
-        <textarea id="passport-text" rows="10" readonly></textarea>
+        <textarea id="passport-text" rows="14" readonly></textarea>
         <div class="row mt">
           <button id="btn-copy-passport" class="btn" type="button">Скопировать passport</button>
           <button id="btn-copy-full" class="btn btn-primary" type="button">Скопировать Full prompt</button>
